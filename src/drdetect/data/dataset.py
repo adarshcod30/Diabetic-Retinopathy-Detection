@@ -108,11 +108,20 @@ def load_split(
     Grouping comes from the manifest's `group_id`, which scripts/preprocess.py
     populates by perceptual hashing. Leakage is asserted, not assumed.
     """
-    from drdetect.data.splits import assert_no_group_leakage, stratified_group_split
+    from drdetect.data.splits import (
+        assert_no_group_leakage,
+        stratified_group_split,
+        validate_grouping,
+    )
 
     records = read_manifest(manifest_path)
     labels = [r.label for r in records]
     groups = [r.group_id for r in records]
+
+    # Reject a collapsed grouping BEFORE splitting. A single giant group passes
+    # the leakage assertion trivially and produces a wildly lopsided split.
+    if any(groups):
+        validate_grouping(groups)
 
     folds, strategy = stratified_group_split(
         labels, groups, n_splits=n_splits, seed=seed, allow_ungrouped=allow_ungrouped

@@ -199,3 +199,102 @@ class TestStructuralHash:
         assert (
             bin(structural_hash(img) ^ structural_hash(cv2.resize(img, (400, 400)))).count("1") <= 5
         )
+
+
+class TestPercolationGuard:
+    """Regression tests for the failure that produced a train=524/val=3138 split.
+
+    Union-find takes the transitive closure, so a small number of spurious
+    near-matches chains almost everything into one giant component. On APTOS a
+    64-bit hash produced ~670 false edges and merged 3,138 of 3,662 images into
+    a single group, which then became an entire validation fold -- while still
+    reporting strategy `true_groups` and passing the leakage assertion.
+    """
+
+    def test_chain_cannot_swallow_the_dataset(self):
+        """A~B~C~...~Z chain must not become one group when capped."""
+        from drdetect.data.splits import perceptual_hash_groups
+
+        # Each hash differs from its neighbour by 1 bit -> a connected chain,
+        # even though the ends are 199 bits apart.
+        ids = [f"img{i:04d}" for i in range(200)]
+        hashes = [(1 << i) - 1 for i in range(200)]
+
+        with pytest.warns(UserWarning, match="merge\\(s\\) refused"):
+            mapping = perceptual_hash_groups(ids, hashes, max_distance=2, max_group_size=25)
+
+        from collections import Counter
+
+        largest = Counter(mapping.values()).most_common(1)[0][1]
+        assert largest <= 25, f"cap breached: one group holds {largest} of 200"
+
+    def test_validator_rejects_a_collapsed_grouping(self):
+        """The exact APTOS shape: 86% of images in one group."""
+        from drdetect.data.splits import validate_grouping
+
+        groups = ["g000000"] * 3138 + [f"g{i:06d}" for i in range(524)]
+        with pytest.raises(ValueError, match="Degenerate grouping"):
+            validate_grouping(groups)
+
+    def test_validator_rejects_wholesale_over_merging(self):
+        from drdetect.data.splits import validate_grouping
+
+        groups = [f"g{i // 20:04d}" for i in range(1000)]  # 50 groups for 1000 images
+        with pytest.raises(ValueError, match="over-merging"):
+            validate_grouping(groups)
+
+    def test_validator_accepts_healthy_grouping(self):
+        """~150 duplicate pairs in 3,662 images -- the real APTOS shape."""
+        from drdetect.data.splits import validate_grouping
+
+        groups = [f"g{i:05d}" for i in range(3500)] + [f"g{i:05d}" for i in range(150)]
+        stats = validate_grouping(groups)
+        assert stats["n_groups"] == 3500
+        assert stats["largest_group"] == 2
+        assert stats["merged"] == 150
+
+    def test_a_giant_group_would_pass_the_leakage_check(self):
+        """Documents WHY the validator is needed: the leakage assertion cannot
+        catch this, because one group trivially never straddles folds."""
+        from drdetect.data.splits import assert_no_group_leakage
+
+        groups = ["mega"] * 100
+        folds = [np.arange(0, 100)]
+        assert_no_group_leakage(folds, groups)  # passes -- and the split is useless
+
+    def test_higher_resolution_hash_separates_better(self):
+        """256-bit hashing is what removes the false edges in the first place."""
+        import cv2
+
+        from drdetect.data.splits import structural_hash
+
+        def disc(seed, size=400):
+            rng = np.random.default_rng(seed)
+            img = np.zeros((size, size, 3), np.uint8)
+            yy, xx = np.ogrid[:size, :size]
+            img[(yy - size // 2) ** 2 + (xx - size // 2) ** 2 <= (size // 2 - 20) ** 2] = (
+                165,
+                80,
+                50,
+            )
+            for _ in range(5):
+                cv2.line(
+                    img,
+                    (int(rng.integers(0, size)), int(rng.integers(0, size))),
+                    (int(rng.integers(0, size)), int(rng.integers(0, size))),
+                    (85, 28, 22),
+                    3,
+                )
+            return img
+
+        a, b = disc(1), disc(2)
+        coarse = (
+            bin(
+                structural_hash(a, size=128, hash_size=8)
+                ^ structural_hash(b, size=128, hash_size=8)
+            ).count("1")
+            / 64
+        )
+        fine = bin(structural_hash(a) ^ structural_hash(b)).count("1") / 256
+        assert fine >= coarse * 0.8, "256-bit must not separate distinct images less than 64-bit"
+        assert bin(structural_hash(a) ^ structural_hash(a)).count("1") == 0

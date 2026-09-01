@@ -36,6 +36,7 @@ __all__ = [
     "dhash",
     "structural_hash",
     "perceptual_hash_groups",
+    "validate_grouping",
     "stratified_group_split",
     "assert_no_group_leakage",
 ]
@@ -72,7 +73,7 @@ def dhash(image: np.ndarray, hash_size: int = 8) -> int:
     return bits
 
 
-def structural_hash(image: np.ndarray, size: int = 128) -> int:
+def structural_hash(image: np.ndarray, size: int = 256, hash_size: int = 16) -> int:
     """Perceptual hash of an image's *coarse structure*, for grouping.
 
     Deliberately computed on a plain circle-crop + resize, NOT on the
@@ -87,6 +88,14 @@ def structural_hash(image: np.ndarray, size: int = 128) -> int:
 
     The identity of an eye lives in its vessel and optic-disc layout. That is
     what this hashes.
+
+    Resolution matters more than it looks. At 8x8 (64 bits) on 128 px, measured
+    across APTOS the median inter-image distance was 18 bits with ~670 pairs
+    falling within 5 bits -- most of them false matches, because 64 bits cannot
+    separate two fundus photographs that are both "a bright disc on black".
+    At 16x16 (256 bits) on 256 px the distribution is cleanly bimodal: 148 pairs
+    at 0-4 bits and then NOTHING until 39 bits. Those false matches are what
+    percolated the grouping into a single giant component.
     """
     import cv2
 
@@ -94,7 +103,7 @@ def structural_hash(image: np.ndarray, size: int = 128) -> int:
 
     cropped = circle_crop(image)
     resized = cv2.resize(cropped, (size, size), interpolation=cv2.INTER_AREA)
-    return dhash(resized)
+    return dhash(resized, hash_size=hash_size)
 
 
 def _hamming(a: int, b: int) -> int:
@@ -102,21 +111,62 @@ def _hamming(a: int, b: int) -> int:
 
 
 def perceptual_hash_groups(
-    image_ids: list[str], hashes: list[int], max_distance: int = 5
+    image_ids: list[str],
+    hashes: list[int],
+    max_distance: int = 6,
+    *,
+    max_group_size: int | None = None,
 ) -> dict[str, str]:
     """Group near-duplicate images via union-find over Hamming distance.
 
     Returns {image_id: group_id}. Images within `max_distance` bits are treated
     as the same group (transitively).
 
-    This is a *mitigation*, not a substitute for patient IDs: it catches repeated
-    or near-identical captures, but two genuinely different photographs of a
-    patient's two eyes will not be grouped. Declare the limitation when reporting.
+    Percolation, and why `max_group_size` exists
+    --------------------------------------------
+    Union-find takes the TRANSITIVE closure: a~b and b~c puts a, b and c in one
+    group even if a and c are far apart. Over a large set, a small number of
+    spurious edges is enough to chain almost everything together -- a random
+    graph needs only ~N/2 edges to form a giant connected component.
+
+    This is not hypothetical. On APTOS (3,662 images) a 64-bit hash produced
+    ~670 near-matches, and the transitive closure merged 3,138 images into a
+    single "group" which then became an entire validation fold. The split was
+    train=524 / val=3138 and silently reported as `true_groups`.
+
+    Two defences: a hash resolution that does not manufacture false edges (see
+    `structural_hash`), and this hard cap on group size. `max_group_size`
+    defaults to max(25, 1% of the dataset) -- a "patient" larger than that is a
+    hash failure, not a patient, so the merge is refused.
+
+    Choosing `max_distance`
+    -----------------------
+    Measured on APTOS with `structural_hash` over all 6.7M pairs, the cumulative
+    count is flat across thresholds 2-6 (148 pairs at every value) and stays
+    near-flat to 8 (150). It then climbs -- 207 at 10, 391 at 12 -- and chaining
+    appears: threshold 10 produced a 31-image group whose members were up to 33
+    bits apart. The default of 6 sits mid-plateau, so the result is insensitive
+    to the exact value.
+
+    Note the threshold must be measured for the hash ACTUALLY used. An earlier
+    value of 10 was taken from a distribution measured on Ben Graham-preprocessed
+    images and then applied to `structural_hash`, which runs on raw
+    circle-cropped images. Different transform, different distances.
+
+    This remains a *mitigation*, not a substitute for patient IDs: it catches
+    repeated or near-identical captures, but two genuinely different photographs
+    of one patient's two eyes will not be grouped. Declare the limitation when
+    reporting.
     """
     if len(image_ids) != len(hashes):
         raise ValueError("image_ids and hashes must be the same length")
 
-    parent = list(range(len(image_ids)))
+    n = len(image_ids)
+    if max_group_size is None:
+        max_group_size = max(25, n // 100)
+
+    parent = list(range(n))
+    size = [1] * n
 
     def find(i: int) -> int:
         while parent[i] != i:
@@ -124,17 +174,38 @@ def perceptual_hash_groups(
             i = parent[i]
         return i
 
+    refused = 0
+
     def union(i: int, j: int) -> None:
+        nonlocal refused
         ri, rj = find(i), find(j)
-        if ri != rj:
-            parent[max(ri, rj)] = min(ri, rj)
+        if ri == rj:
+            return
+        if size[ri] + size[rj] > max_group_size:
+            # Refusing the merge is the safe failure: two smaller groups may
+            # leak, but one giant group destroys the split entirely.
+            refused += 1
+            return
+        lo, hi = (ri, rj) if ri < rj else (rj, ri)
+        parent[hi] = lo
+        size[lo] += size[hi]
 
     # O(n^2). Fine for APTOS (3,662 -> ~6.7M comparisons, seconds). For EyePACS
     # scale this would need LSH bucketing on hash prefixes.
-    for i in range(len(hashes)):
-        for j in range(i + 1, len(hashes)):
-            if _hamming(hashes[i], hashes[j]) <= max_distance:
+    for i in range(n):
+        hi_hash = hashes[i]
+        for j in range(i + 1, n):
+            if (hi_hash ^ hashes[j]).bit_count() <= max_distance:
                 union(i, j)
+
+    if refused:
+        warnings.warn(
+            f"{refused} merge(s) refused because they would exceed max_group_size="
+            f"{max_group_size}. This usually means the hash is producing false "
+            f"matches; check structural_hash resolution and max_distance.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     roots = defaultdict(list)
     for idx, image_id in enumerate(image_ids):
@@ -146,6 +217,52 @@ def perceptual_hash_groups(
         for m in members:
             mapping[m] = gid
     return mapping
+
+
+def validate_grouping(
+    groups: list[str],
+    *,
+    max_group_fraction: float = 0.05,
+    min_group_fraction: float = 0.5,
+) -> dict:
+    """Reject degenerate groupings before they silently destroy a split.
+
+    Raises if any single group holds more than `max_group_fraction` of the data,
+    or if the number of distinct groups falls below `min_group_fraction` of the
+    number of images.
+
+    This exists because the failure it catches is invisible downstream: a
+    grouping that collapsed 86% of APTOS into one group still reported strategy
+    `true_groups`, still passed the no-leakage assertion (trivially -- one group
+    cannot straddle folds), and produced a train=524 / val=3138 split that would
+    have trained for hours and produced a meaningless number.
+    """
+    from collections import Counter
+
+    n = len(groups)
+    counts = Counter(groups)
+    largest_id, largest = counts.most_common(1)[0]
+    stats = {
+        "n_images": n,
+        "n_groups": len(counts),
+        "largest_group": largest,
+        "largest_group_id": largest_id,
+        "merged": n - len(counts),
+    }
+
+    if largest > max_group_fraction * n:
+        raise ValueError(
+            f"Degenerate grouping: group {largest_id!r} holds {largest}/{n} images "
+            f"({100 * largest / n:.1f}%), above the {100 * max_group_fraction:.0f}% limit.\n"
+            f"A 'patient' that large is a hash collapse, not a patient. Re-run "
+            f"grouping with a higher-resolution hash or a tighter max_distance."
+        )
+    if len(counts) < min_group_fraction * n:
+        raise ValueError(
+            f"Degenerate grouping: {len(counts)} groups for {n} images "
+            f"(< {100 * min_group_fraction:.0f}%). The hash is over-merging."
+        )
+    return stats
 
 
 def stratified_group_split(

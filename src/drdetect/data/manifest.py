@@ -12,6 +12,8 @@ sha256     content hash of the raw file
 dataset    aptos | idrid | messidor2 | drive | eyepacs
 label      ICDR grade 0-4, or -1 when unlabelled
 group_id   patient/eye grouping key for leak-free splits, or "" if unknown
+phash      structural perceptual hash (decimal string), or "" -- cached so
+           regrouping does not require re-decoding every source image
 width      pixels
 height     pixels
 """
@@ -36,6 +38,7 @@ class ImageRecord:
     dataset: str
     label: int = -1
     group_id: str = ""
+    phash: str = ""
     width: int = 0
     height: int = 0
 
@@ -73,6 +76,7 @@ def read_manifest(path: str | Path) -> list[ImageRecord]:
                     dataset=row["dataset"],
                     label=int(row["label"]),
                     group_id=row["group_id"],
+                    phash=row.get("phash", ""),
                     width=int(row["width"]),
                     height=int(row["height"]),
                 )

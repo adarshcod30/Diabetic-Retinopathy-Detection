@@ -201,6 +201,7 @@ def main() -> int:
             dataset=args.dataset,
             label=labels.get(r["image_id"], -1),
             group_id=groups[r["image_id"]],
+            phash=str(r["dhash"]),
             width=r["width"],
             height=r["height"],
         )
