@@ -94,7 +94,7 @@ ignore = ["E501"]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = [
-    "slow: long-running tests (deselect with -m 'not slow')",
+    "slow: long-running tests, incl. training (deselect with -m 'not slow')",
     "gpu: requires a GPU",
     "data: requires downloaded datasets",
 ]

@@ -63,12 +63,18 @@ every dataset from memory.
 
 **Goal:** a number to beat. Resist tuning.
 
-- [ ] Preprocessing module: `crop_from_gray` → `circle_crop` → Ben Graham → resize. Unit-tested.
-- [ ] Cache APTOS at 512 px into `data/processed/` (10 GB → ~200 MB)
-- [ ] **Patient-level** stratified 5-fold split (or image-level with a documented caveat if APTOS lacks IDs)
-- [ ] Baseline: EfficientNet-B0, 224 px, ImageNet init, cross-entropy, on Kaggle GPU
-- [ ] Metrics module: QWK, sens/spec @ referable, AUROC, AUPRC, confusion matrix
-- [ ] W&B logging wired up
+- [x] Preprocessing module: `crop_from_gray` → `circle_crop` → Ben Graham → resize. Unit-tested.
+- [x] Cache pipeline (`scripts/preprocess.py`) — parallel, resumable, builds the manifest
+- [x] Split module — **APTOS ships no patient IDs**, so grouping is derived from perceptual
+      hashing of source structure; `stratified_group_split` *refuses* to split ungrouped
+      unless the caller opts in explicitly
+- [x] Metrics module: QWK (validated against sklearn), sens/spec @ referable, bootstrap CIs, ECE
+- [x] Baseline trainer (`scripts/train.py`) — EfficientNet-B0, frozen BN, cosine schedule,
+      per-class recall logged every epoch
+- [x] End-to-end integration test on a synthetic APTOS (76 tests total)
+- [ ] **Download APTOS** (blocked: needs `kaggle.json`) ← only remaining step
+- [ ] Run the real baseline and record the QWK
+- [ ] W&B logging wired up (CSV logging works today)
 
 **Exit criterion:** a logged baseline QWK on APTOS validation. Expect **~0.80–0.88**. Write the number
 down; every future change is measured against it.

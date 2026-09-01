@@ -1,4 +1,4 @@
-.PHONY: help setup test lint format clean bench data preprocess train evaluate demo sim
+.PHONY: help setup test test-all lint format clean bench data preprocess train evaluate demo sim
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -8,7 +8,10 @@ setup:  ## Create venv and install the package with dev extras (idempotent)
 	uv pip install --python .venv/bin/python -e ".[dev]"
 	.venv/bin/pre-commit install
 
-test:  ## Run the test suite
+test:  ## Run the fast test suite (no training)
+	.venv/bin/python -m pytest tests/ -v -m "not slow"
+
+test-all:  ## Run every test, including the end-to-end training run
 	.venv/bin/python -m pytest tests/ -v
 
 lint:  ## Lint and format-check

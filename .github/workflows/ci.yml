@@ -34,7 +34,7 @@ jobs:
       - name: Install test dependencies
         run: |
           uv venv --python ${{ matrix.python-version }}
-          uv pip install numpy opencv-python-headless pytest pytest-cov ruff
+          uv pip install numpy opencv-python-headless scikit-learn pytest pytest-cov ruff
           uv pip install -e . --no-deps
 
       - name: Lint
@@ -42,8 +42,10 @@ jobs:
           uv run ruff check .
           uv run ruff format --check .
 
+      # Fast lane only: the slow lane trains a model and needs torch (~800 MB)
+      # plus a weights download. Run it locally with `make test-all`.
       - name: Test
-        run: uv run pytest tests/ -v --cov=drdetect --cov-report=term-missing
+        run: uv run pytest tests/ -v -m "not slow" --cov=drdetect --cov-report=term-missing
 
   # Fails the build if a large binary sneaks past .gitignore. Datasets and
   # checkpoints must never enter git history -- once committed, they are
