@@ -1,4 +1,4 @@
-.PHONY: help setup test lint format clean data preprocess train evaluate demo sim
+.PHONY: help setup test lint format clean bench data preprocess train evaluate demo sim
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -18,6 +18,9 @@ lint:  ## Lint and format-check
 format:  ## Auto-format
 	.venv/bin/ruff check --fix .
 	.venv/bin/ruff format .
+
+bench:  ## Measure real training throughput before fixing the scope
+	.venv/bin/python scripts/benchmark_device.py
 
 data:  ## Download the datasets that fit locally (NOT EyePACS)
 	bash scripts/download_data.sh --datasets aptos,idrid,drive

@@ -49,6 +49,8 @@ gantt
 - [ ] **Data audit notebook**: class distribution, image sizes, camera types, duplicate detection,
       and *check whether APTOS has patient IDs* — if not, document the leakage risk explicitly
 - [ ] Build `data/manifests/` with sha256 + labels
+- [ ] **Run `make bench`** and fix the scope from measured throughput, not estimates
+      (see [`05_PROTOTYPE_SCOPE.md`](05_PROTOTYPE_SCOPE.md))
 
 **Exit criterion:** `pytest` passes on a clean clone; you can state the exact class distribution of
 every dataset from memory.

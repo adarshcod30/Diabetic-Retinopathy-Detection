@@ -10,7 +10,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white)](#tech-stack)
 [![Not a medical device](https://img.shields.io/badge/⚠️-not%20a%20medical%20device-red)](#ethical-boundary--intended-use)
 
-[**Analysis**](docs/01_PROJECT_ANALYSIS.md) · [**Literature**](docs/02_LITERATURE_REVIEW.md) · [**Tech Stack**](docs/03_TECH_STACK.md) · [**Roadmap**](docs/04_ROADMAP.md) · [**Report Bug**](https://github.com/adarshcod30/Diabetic-Retinopathy-Detection/issues)
+[**Analysis**](docs/01_PROJECT_ANALYSIS.md) · [**Literature**](docs/02_LITERATURE_REVIEW.md) · [**Tech Stack**](docs/03_TECH_STACK.md) · [**Roadmap**](docs/04_ROADMAP.md) · [**Prototype Scope**](docs/05_PROTOTYPE_SCOPE.md) · [**Report Bug**](https://github.com/adarshcod30/Diabetic-Retinopathy-Detection/issues)
 
 </div>
 
@@ -31,6 +31,7 @@
 - [Data & ML Pipeline](#data--ml-pipeline)
 - [Results & Model Performance](#results--model-performance)
 - [Deployment & Infrastructure](#deployment--infrastructure)
+- [Prototype Scope](#prototype-scope-tier-p)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Usage](#usage)
@@ -316,7 +317,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 01_PROJECT_ANALYSIS.md    # what this is, why it is hard, what "done" means
 │   ├── 02_LITERATURE_REVIEW.md   # annotated evidence base
 │   ├── 03_TECH_STACK.md          # tooling decisions and rationale
-│   └── 04_ROADMAP.md             # 20-week phased plan
+│   ├── 04_ROADMAP.md             # 20-week phased plan
+│   └── 05_PROTOTYPE_SCOPE.md     # Tier-P: scaling down without breaking the science
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
@@ -332,7 +334,7 @@ Diabetic-Retinopathy-Detection/
 ├── simulation/
 │   ├── simpy/                # Stage 7 — district screening programme model
 │   └── simulink/             # optional .slx mirror
-├── scripts/                  # download_data.sh · preprocess.py · train.py · evaluate.py · export.py
+├── scripts/                  # benchmark_device.py · download_data.sh · preprocess.py · train.py · evaluate.py
 ├── tests/
 ├── models/                   # gitignored; released via GitHub Releases / HF Hub
 └── .github/workflows/
@@ -465,6 +467,31 @@ Detail, exit criteria, and an explicit scope-cut order: [`docs/04_ROADMAP.md`](d
 NV pixel masks. PDR is detected at image level and the gap is documented rather than papered over.
 
 ---
+
+## Prototype Scope (Tier-P)
+
+Development runs on a 16 GB Apple M4 with ~28 GB free disk. That constrains **compute**, not
+data — after caching at 512 px, APTOS, IDRiD, Messidor-2 and DRIVE together occupy **0.4 GB**.
+
+So the scale-down cuts compute and keeps every image:
+
+| | Full (Tier-F) | **Prototype (Tier-P)** |
+|---|---|---|
+| APTOS / IDRiD / DRIVE / Messidor-2 | full | **full — unchanged** |
+| EyePACS pretraining | 88,702 | 12–15k stratified, cached on Kaggle |
+| Backbone | EfficientNetV2-S | EfficientNet-B0 |
+| Resolution | 768 px | 512 px *(floor — below this microaneurysms vanish)* |
+| Cross-validation | 5-fold + TTA | single split + hflip TTA |
+
+**≈34× cheaper, zero task data discarded.** Every cut is a config override, reversible on
+Kaggle without re-splitting or re-collecting anything.
+
+Two things are never scaled down: the **test set** (a 50-case test set gives a ±8.5 pp
+confidence interval, which makes a ">90 % sensitivity" claim unmakeable) and the **validation
+protocol**. Grade 3 has only 193 images in all of APTOS — subsampling collapses it to 15–38
+training examples long before the dataset merely looks small.
+
+Full arithmetic and the claims that do and don't survive: [`docs/05_PROTOTYPE_SCOPE.md`](docs/05_PROTOTYPE_SCOPE.md).
 
 ## Ethical Boundary & Intended Use
 
