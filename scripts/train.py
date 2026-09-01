@@ -49,11 +49,12 @@ def main() -> int:
     p.add_argument("--size", type=int, default=512)
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--epochs", type=int, default=40)
-    p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--weight-decay", type=float, default=1e-4)
     p.add_argument("--folds", default="0", help="comma-separated fold indices")
     p.add_argument("--n-splits", type=int, default=5)
     p.add_argument("--workers", type=int, default=2)
+    p.add_argument("--grad-clip", type=float, default=1.0, help="0 disables")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--no-freeze-bn", action="store_true")
     p.add_argument("--class-weights", action="store_true", help="inverse-frequency loss weighting")
@@ -143,6 +144,7 @@ def main() -> int:
         if not args.no_freeze_bn:
             print(f"  frozen BatchNorm layers: {model.n_frozen_bn}")
 
+        print(f"  lr {args.lr:.1e}, grad-clip {args.grad_clip}, warmup 3 epochs")
         module = GradingModule(
             model,
             lr=args.lr,
@@ -156,6 +158,10 @@ def main() -> int:
             max_epochs=epochs,
             accelerator=accelerator,
             devices=1,
+            # Gradient clipping is not optional at batch 4. Without it, a single
+            # noisy batch can blow the loss up by two orders of magnitude and
+            # collapse the model to one class -- observed on this project.
+            gradient_clip_val=args.grad_clip if args.grad_clip > 0 else None,
             precision="32-true",  # MPS fp16 is unreliable for BN-heavy nets
             deterministic=False,  # some MPS kernels lack deterministic variants
             logger=CSVLogger(save_dir="runs", name=run_name, version=f"fold{fold}"),

@@ -32,11 +32,11 @@ class GradingModule(L.LightningModule):
         self,
         model: nn.Module,
         *,
-        lr: float = 3e-4,
+        lr: float = 1e-4,
         weight_decay: float = 1e-4,
         num_classes: int = 5,
         class_weights: list[float] | None = None,
-        warmup_epochs: int = 1,
+        warmup_epochs: int = 3,
         max_epochs: int = 40,
     ):
         super().__init__()
@@ -51,6 +51,19 @@ class GradingModule(L.LightningModule):
 
         self._val_logits: list[torch.Tensor] = []
         self._val_targets: list[torch.Tensor] = []
+        self._first_epoch_loss: float | None = None
+
+    @property
+    def _epoch(self) -> int:
+        """current_epoch without requiring an attached trainer.
+
+        Used only in error messages. A guard that raises AttributeError while
+        constructing its own diagnostic is worse than no guard.
+        """
+        try:
+            return int(self.current_epoch)
+        except (AttributeError, RuntimeError):
+            return -1
 
     def forward(self, x):
         return self.model(x)
@@ -58,8 +71,39 @@ class GradingModule(L.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         loss = self.criterion(self(x), y)
+        if not torch.isfinite(loss):
+            raise RuntimeError(
+                f"Training loss is {loss.item()} at epoch {self._epoch}, step "
+                f"{batch_idx}. Diverged -- lower --lr or check the data pipeline."
+            )
         self.log("train/loss", loss, prog_bar=True, on_step=False, on_epoch=True)
         return loss
+
+    def on_train_epoch_end(self):
+        """Abort a diverged run immediately rather than after hours.
+
+        Small-batch training (batch 4, forced here by available RAM) produces
+        noisy gradients; with too high a learning rate the loss can explode by
+        two orders of magnitude in a single epoch. Measured on this project:
+        train loss went 0.786 -> 239.35 when warmup ended at lr 3e-4, and the
+        model collapsed to predicting grade 0 for everything. Detecting that in
+        one epoch instead of forty is the difference between five minutes and
+        two and a half hours.
+        """
+        loss = self.trainer.callback_metrics.get("train/loss")
+        if loss is None:
+            return
+        loss = float(loss)
+        if self._first_epoch_loss is None:
+            self._first_epoch_loss = loss
+            return
+        if loss > max(10.0 * self._first_epoch_loss, 5.0):
+            raise RuntimeError(
+                f"Training diverged: loss {loss:.2f} at epoch {self._epoch} vs "
+                f"{self._first_epoch_loss:.3f} at epoch 0.\n"
+                f"With batch size 4 this usually means the learning rate is too high. "
+                f"Try --lr 5e-5, and confirm gradient clipping is enabled."
+            )
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
