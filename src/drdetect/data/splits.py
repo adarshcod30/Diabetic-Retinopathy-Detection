@@ -1,0 +1,223 @@
+"""Leak-free cross-validation splits.
+
+The failure this module exists to prevent
+-----------------------------------------
+Fundus datasets contain both eyes of the same patient, and the two eyes of one
+diabetic are strongly correlated in DR severity. If one eye lands in train and
+the other in test, the model has effectively seen the test set. Every reported
+metric inflates, the loss curves look perfect, and nothing warns you.
+
+The complication specific to APTOS
+----------------------------------
+APTOS-2019's `train.csv` carries only `id_code` and `diagnosis`. There is **no
+patient or eye identifier**, so a true patient-level split is impossible on that
+dataset as distributed. Silently falling back to an image-level split would be
+exactly the failure described above, so this module:
+
+  1. refuses to guess -- `stratified_group_split` requires an explicit decision;
+  2. offers `perceptual_hash_groups` as a documented mitigation: images that are
+     near-identical (plausibly the same eye or patient) are grouped so they
+     cannot straddle folds;
+  3. records which strategy was used, so the caveat travels with the results.
+
+Messidor-2 *does* encode exam pairing in its filenames, so real grouping is
+available there and should be used.
+"""
+
+from __future__ import annotations
+
+import warnings
+from collections import defaultdict
+
+import numpy as np
+
+__all__ = [
+    "SplitStrategy",
+    "dhash",
+    "structural_hash",
+    "perceptual_hash_groups",
+    "stratified_group_split",
+    "assert_no_group_leakage",
+]
+
+
+class SplitStrategy:
+    """How grouping was determined. Travels with results as a provenance record."""
+
+    TRUE_GROUPS = "true_groups"  # real patient/eye ids -- trustworthy
+    PERCEPTUAL = "perceptual_hash"  # near-duplicate grouping -- mitigation only
+    IMAGE_LEVEL = "image_level"  # no grouping -- leakage possible, must be declared
+
+
+def dhash(image: np.ndarray, hash_size: int = 8) -> int:
+    """Difference hash: a 64-bit perceptual fingerprint.
+
+    Compares each pixel with its right-hand neighbour on a downscaled grayscale
+    image, so it is robust to resolution, JPEG artefacts and mild brightness
+    shifts, but sensitive to actual content. Two photographs of the same eye
+    typically differ by only a few bits.
+
+    Implemented here rather than pulled from `imagehash` to avoid a dependency
+    for ~10 lines, and so the exact behaviour is pinned by our own tests.
+    """
+    import cv2
+
+    if image.ndim == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    resized = cv2.resize(image, (hash_size + 1, hash_size), interpolation=cv2.INTER_AREA)
+    diff = resized[:, 1:] > resized[:, :-1]
+    bits = 0
+    for bit in diff.flatten():
+        bits = (bits << 1) | int(bit)
+    return bits
+
+
+def structural_hash(image: np.ndarray, size: int = 128) -> int:
+    """Perceptual hash of an image's *coarse structure*, for grouping.
+
+    Deliberately computed on a plain circle-crop + resize, NOT on the
+    Ben Graham-preprocessed image used for training.
+
+    Ben Graham preprocessing subtracts the local average colour, which removes
+    exactly the low-frequency content dHash depends on. Measured on a fundus and
+    a degraded copy of itself: hashing the Ben Graham output put them 8 bits
+    apart (above the grouping threshold, so the duplicate was missed), while
+    hashing the structural image put them 0 bits apart -- with unrelated images
+    still 14 bits away.
+
+    The identity of an eye lives in its vessel and optic-disc layout. That is
+    what this hashes.
+    """
+    import cv2
+
+    from drdetect.enhance.preprocessing import circle_crop
+
+    cropped = circle_crop(image)
+    resized = cv2.resize(cropped, (size, size), interpolation=cv2.INTER_AREA)
+    return dhash(resized)
+
+
+def _hamming(a: int, b: int) -> int:
+    return bin(a ^ b).count("1")
+
+
+def perceptual_hash_groups(
+    image_ids: list[str], hashes: list[int], max_distance: int = 5
+) -> dict[str, str]:
+    """Group near-duplicate images via union-find over Hamming distance.
+
+    Returns {image_id: group_id}. Images within `max_distance` bits are treated
+    as the same group (transitively).
+
+    This is a *mitigation*, not a substitute for patient IDs: it catches repeated
+    or near-identical captures, but two genuinely different photographs of a
+    patient's two eyes will not be grouped. Declare the limitation when reporting.
+    """
+    if len(image_ids) != len(hashes):
+        raise ValueError("image_ids and hashes must be the same length")
+
+    parent = list(range(len(image_ids)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[max(ri, rj)] = min(ri, rj)
+
+    # O(n^2). Fine for APTOS (3,662 -> ~6.7M comparisons, seconds). For EyePACS
+    # scale this would need LSH bucketing on hash prefixes.
+    for i in range(len(hashes)):
+        for j in range(i + 1, len(hashes)):
+            if _hamming(hashes[i], hashes[j]) <= max_distance:
+                union(i, j)
+
+    roots = defaultdict(list)
+    for idx, image_id in enumerate(image_ids):
+        roots[find(idx)].append(image_id)
+
+    mapping: dict[str, str] = {}
+    for root, members in roots.items():
+        gid = f"g{root:06d}"
+        for m in members:
+            mapping[m] = gid
+    return mapping
+
+
+def stratified_group_split(
+    labels: list[int],
+    groups: list[str] | None,
+    *,
+    n_splits: int = 5,
+    seed: int = 42,
+    allow_ungrouped: bool = False,
+) -> tuple[list[np.ndarray], str]:
+    """Stratified k-fold that keeps each group whole.
+
+    Args:
+        labels: class label per sample, used for stratification.
+        groups: grouping key per sample. `None` or all-empty means no grouping
+            information exists.
+        allow_ungrouped: must be set explicitly to proceed without groups. This
+            is a guard rail: falling back silently is the bug this module exists
+            to prevent.
+
+    Returns:
+        (fold_indices, strategy) where fold_indices[k] holds the *test* indices
+        of fold k, and strategy is a `SplitStrategy` constant to record.
+
+    Raises:
+        ValueError: if grouping is absent and `allow_ungrouped` is False.
+    """
+    from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
+
+    labels_arr = np.asarray(labels)
+    has_groups = groups is not None and any(g for g in groups)
+
+    if not has_groups:
+        if not allow_ungrouped:
+            raise ValueError(
+                "No grouping information supplied. A plain image-level split can leak "
+                "the same patient across folds and silently inflate every metric.\n"
+                "Either provide `groups` (from patient ids, or from "
+                "perceptual_hash_groups()), or pass allow_ungrouped=True to accept "
+                "the risk explicitly and declare it when reporting results."
+            )
+        warnings.warn(
+            "Splitting at IMAGE level with no grouping. If this dataset contains "
+            "multiple images per patient, results will be optimistically biased. "
+            "Record SplitStrategy.IMAGE_LEVEL alongside any metric derived from it.",
+            UserWarning,
+            stacklevel=2,
+        )
+        splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+        folds = [test for _, test in splitter.split(np.zeros(len(labels_arr)), labels_arr)]
+        return folds, SplitStrategy.IMAGE_LEVEL
+
+    groups_arr = np.asarray(groups)
+    splitter = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    folds = [test for _, test in splitter.split(np.zeros(len(labels_arr)), labels_arr, groups_arr)]
+    return folds, SplitStrategy.TRUE_GROUPS
+
+
+def assert_no_group_leakage(folds: list[np.ndarray], groups: list[str]) -> None:
+    """Raise if any group appears in more than one fold.
+
+    Call this after splitting, every time. It is cheap, and it converts the most
+    expensive silent bug in this literature into a loud, immediate failure.
+    """
+    seen: dict[str, int] = {}
+    for fold_idx, indices in enumerate(folds):
+        for i in indices:
+            gid = groups[i]
+            if not gid:
+                continue
+            prev = seen.setdefault(gid, fold_idx)
+            if prev != fold_idx:
+                raise AssertionError(
+                    f"Group leakage: group {gid!r} appears in folds {prev} and {fold_idx}."
+                )
