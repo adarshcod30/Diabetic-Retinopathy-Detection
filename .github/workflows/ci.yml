@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      # Only the deps the CPU test suite actually needs. Installing torch here
+      # would add ~800 MB and several minutes for tests that never touch it.
+      - name: Install test dependencies
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install numpy opencv-python-headless pytest pytest-cov ruff
+          uv pip install -e . --no-deps
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Test
+        run: uv run pytest tests/ -v --cov=drdetect --cov-report=term-missing
+
+  # Fails the build if a large binary sneaks past .gitignore. Datasets and
+  # checkpoints must never enter git history -- once committed, they are
+  # effectively permanent.
+  no-large-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject files over 5 MB
+        run: |
+          BIG=$(find . -path ./.git -prune -o -type f -size +5M -print)
+          if [ -n "$BIG" ]; then
+            echo "::error::Files over 5MB found -- datasets/weights must not be committed:"
+            echo "$BIG"
+            exit 1
+          fi
+          echo "No oversized files."
