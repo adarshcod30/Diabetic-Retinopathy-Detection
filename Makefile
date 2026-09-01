@@ -3,8 +3,8 @@
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-setup:  ## Create venv and install the package with dev extras
-	uv venv --python 3.11 .venv
+setup:  ## Create venv and install the package with dev extras (idempotent)
+	uv venv --python 3.11 .venv --allow-existing
 	uv pip install --python .venv/bin/python -e ".[dev]"
 	.venv/bin/pre-commit install
 

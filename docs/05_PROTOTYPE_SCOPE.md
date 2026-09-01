@@ -167,15 +167,78 @@ same manifests and the same locked test set carry over, so results remain direct
 
 ---
 
-## 6. First action: measure, do not estimate
+## 6. Measured throughput (Apple M4, 16 GB, torch 2.13, MPS)
+
+Run 2026-09-02 via `scripts/benchmark_device.py`, EfficientNet-B0, ~6.1 GB RAM free
+(Chrome and other apps open), projecting 2,930 APTOS training images x 40 epochs:
+
+| Resolution | Batch | Fwd img/s | Train img/s | Peak GB | Per epoch | **Full run** |
+|---:|---:|---:|---:|---:|---:|---:|
+| 384 | 4 | 99.1 | 22.8 | 2.19 | 2.1 min | **86 min** |
+| 384 | 8 | — | — | — | — | skipped, over budget |
+| **512** | **4** | **59.5** | **14.1** | **2.27** | **3.5 min** | **2.3 h** |
+| 512 | 8 | — | — | — | — | skipped, over budget |
+
+**Verdict: Tier-P is comfortably feasible locally.** A full 40-epoch run at the
+Tier-P configuration (512 px, EfficientNet-B0) takes **~2.3 hours** — an afternoon,
+not an overnight job. Six ablation rows is roughly 14 hours of compute, easily
+spread across a few days.
+
+### 6.1 Two constraints the measurement exposed
+
+**Batch size is capped at 4 by free RAM, not by the GPU.** Free RAM during the run
+was 6.1 GB of 16 GB — the rest was Chrome, the editor, and other applications.
+Closing them raises the budget and allows batch 8. The GPU is not the bottleneck;
+*everything else running on the machine* is.
+
+**Batch 4 + BatchNorm needs handling.** EfficientNet uses BatchNorm, whose running
+statistics are estimated per micro-batch. At batch 4 those statistics are noisy, and
+gradient accumulation does **not** fix it (accumulation batches the optimiser step,
+not the normalisation). Options, in order of preference:
+
+1. **Freeze BN** in the pretrained backbone and use ImageNet running statistics —
+   simplest, standard for small-batch fine-tuning.
+2. **ConvNeXt-Tiny instead of EfficientNet** — LayerNorm has no batch dependence at
+   all, so batch 4 is not a statistical problem. Costs more memory per image.
+3. Close other applications and train at batch 8–16.
+
+This is a genuine design input that only appeared once throughput was measured.
+
+### 6.2 A note on the memory guard
+
+The first version of this benchmark swept up to 768 px x batch 16 and exhausted
+system memory, triggering macOS's "out of application memory" dialog. The cause is
+worth recording, because it will recur in training code:
+
+> On CUDA, an over-large batch raises a catchable `OutOfMemoryError`. On MPS there
+> is no separate VRAM; the allocator's default high-watermark ratio is **1.7**, so
+> it may request ~1.7x physical RAM and macOS honours that by swapping other
+> applications out. No Python exception is raised — the *system* fails instead.
+> `try/except RuntimeError` is not protection on Apple Silicon.
+
+The script now sets `PYTORCH_MPS_LOW_WATERMARK_RATIO=0.7` and
+`PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.8` before importing torch (both are required —
+PyTorch rejects `high < low`, and the default low is 1.4), estimates memory
+analytically as `fixed_overhead + batch x (size/224)^2 x per_image`, and skips
+configs over budget before allocating anything.
+
+**Apply the same watermark settings in `scripts/train.py`.** A long training run
+that quietly swaps is worse than one that fails fast.
+
+---
+
+## 7. First action: measure, do not estimate
 
 Runtime figures above are estimates. Before committing to Tier-P, benchmark the real
 throughput on this machine:
 
 ```bash
-python scripts/benchmark_device.py --backbone efficientnet_b0 --sizes 384,512,768 --batch 4,8,16
+make bench
 ```
 
-Report images/sec for forward and forward+backward on MPS and CPU, plus peak memory. If MPS
-throughput at 512 px turns out worse than expected, the next cut is **folds and ablation rows**,
-then backbone — **not** training data.
+Defaults are deliberately conservative (384/512 px, batch 4/8, budget = 60 % of free RAM
+capped at 6 GB). Large configurations are opt-in via `--budget-gb`, and should preferably be
+measured on Kaggle rather than locally.
+
+If throughput at 512 px is worse than expected, the cut order is **folds → ablation rows →
+backbone** — **never** training data.
