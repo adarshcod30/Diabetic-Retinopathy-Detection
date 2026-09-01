@@ -48,6 +48,20 @@ check_space() {
     echo "  disk check: ${free_gb} GB free, need ~${need_gb} GB  [ok]"
 }
 
+# The kaggle CLI is a project dependency, so it normally lives in ./.venv/bin
+# rather than on PATH. Resolve it in that order instead of assuming a global
+# install.
+resolve_kaggle() {
+    for candidate in "./.venv/bin/kaggle" "$(command -v kaggle 2>/dev/null || true)"; do
+        [[ -n "$candidate" && -x "$candidate" ]] && { echo "$candidate"; return 0; }
+    done
+    if [[ -x "./.venv/bin/python" ]] && ./.venv/bin/python -c "import kaggle" 2>/dev/null; then
+        echo "./.venv/bin/python -m kaggle"
+        return 0
+    fi
+    return 1
+}
+
 find_kaggle_json() {
     for p in "$HOME/.config/kaggle/kaggle.json" "$HOME/.kaggle/kaggle.json"; do
         [[ -f "$p" ]] && { echo "$p"; return 0; }
@@ -87,6 +101,19 @@ NOCREDS
         exit 1
     fi
     echo "  credentials: $kj"
+
+    if ! KAGGLE_BIN=$(resolve_kaggle); then
+        cat >&2 <<'NOCLI'
+  ERROR: the kaggle CLI was not found.
+
+  It is a project dependency, so install the environment first:
+      make setup
+  or, to install just the CLI:
+      .venv/bin/python -m pip install kaggle
+NOCLI
+        exit 1
+    fi
+    echo "  kaggle CLI : $KAGGLE_BIN"
     check_space 25 "APTOS"
 
     dest="$DATA_DIR/aptos"
@@ -94,7 +121,28 @@ NOCREDS
         echo "  already present at $dest -- skipping"
     else
         mkdir -p "$dest"
-        kaggle competitions download -c aptos2019-blindness-detection -p "$dest"
+        echo "  downloading (~10 GB, this takes a while)..."
+        if ! $KAGGLE_BIN competitions download -c aptos2019-blindness-detection -p "$dest" 2>"$dest/.err"; then
+            if grep -qiE "403|forbidden|not.*accept|rules" "$dest/.err"; then
+                cat >&2 <<'RULES'
+
+  ERROR: 403 Forbidden -- the competition rules have not been accepted.
+
+  A valid API token is NOT sufficient for competition data. Open:
+      https://www.kaggle.com/c/aptos2019-blindness-detection/rules
+  sign in, click "I Understand and Accept", then re-run this script.
+
+  (Check with: .venv/bin/kaggle competitions list -s aptos
+   -- the userHasEntered column must read True.)
+RULES
+            else
+                echo "  download failed:" >&2
+                cat "$dest/.err" >&2
+            fi
+            rm -f "$dest/.err"
+            exit 1
+        fi
+        rm -f "$dest/.err"
         echo "  unzipping..."
         unzip -q -o "$dest/aptos2019-blindness-detection.zip" -d "$dest"
         rm -f "$dest/aptos2019-blindness-detection.zip"
