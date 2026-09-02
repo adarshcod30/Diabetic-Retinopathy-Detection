@@ -56,6 +56,13 @@ def main() -> int:
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--grad-clip", type=float, default=1.0, help="0 disables")
     p.add_argument(
+        "--monitor",
+        default="val/qwk",
+        choices=["val/qwk", "val/macro_recall", "val/sensitivity_referable"],
+        help="checkpoint/early-stopping criterion. QWK tracks grade-2 recall on this "
+        "data and can select against rare classes -- see docs/07_PHASE3_RESULTS.md",
+    )
+    p.add_argument(
         "--loss",
         default="ce",
         choices=["ce", "corn", "regression", "distance_ce"],
@@ -115,6 +122,7 @@ def main() -> int:
     print(f"backbone    : {args.backbone} @ {args.size}px, batch {args.batch_size}")
     print(f"epochs      : {epochs}{'  (SMOKE)' if args.smoke else ''}")
     print(f"loss        : {args.loss} ({n_outputs} head outputs)")
+    print(f"monitor     : {args.monitor}")
 
     results = []
     for fold in [int(f) for f in args.folds.split(",")]:
@@ -200,12 +208,12 @@ def main() -> int:
                 ModelCheckpoint(
                     dirpath=out_dir,
                     filename="best",
-                    monitor="val/qwk",
+                    monitor=args.monitor,
                     mode="max",
                     save_top_k=1,
                     save_last=True,
                 ),
-                EarlyStopping(monitor="val/qwk", mode="max", patience=8, min_delta=1e-3),
+                EarlyStopping(monitor=args.monitor, mode="max", patience=8, min_delta=1e-3),
                 LearningRateMonitor(logging_interval="epoch"),
             ],
             log_every_n_steps=10,
@@ -226,7 +234,7 @@ def main() -> int:
         # on the Phase 1 baseline that understated QWK by 0.022, which would
         # bias every later comparison in the same direction.
         ckpt_cb = trainer.checkpoint_callback
-        best_qwk = (
+        best_monitored = (
             float(ckpt_cb.best_model_score)
             if ckpt_cb is not None and ckpt_cb.best_model_score is not None
             else float("nan")
@@ -242,7 +250,8 @@ def main() -> int:
                 "n_val": len(val_recs),
                 "loss": args.loss,
                 "image_size": args.size,
-                "best_qwk": best_qwk,
+                "best_qwk": best_monitored,
+                "monitor": args.monitor,
                 "final_qwk": final_qwk,
                 "epochs_run": trainer.current_epoch + 1,
                 "best_checkpoint": str(ckpt_cb.best_model_path) if ckpt_cb else "",
@@ -250,7 +259,7 @@ def main() -> int:
         )
         results.append(metrics)
         print(
-            f"\nFold {fold}: best QWK={best_qwk:.4f} "
+            f"\nFold {fold}: best {args.monitor}={best_monitored:.4f} "
             f"(final epoch {final_qwk:.4f}, {metrics['epochs_run']} epochs)"
         )
 

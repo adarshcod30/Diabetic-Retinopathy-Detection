@@ -18,8 +18,14 @@ referable) with **paired** significance tests.
 |---|---|---|---|---|---|---|
 | 1 | **Baseline** — EffNet-B0, 512 px, CE | **0.8930** | 0.919 | 0.940 | 0.0646 | — |
 | 2 | 384 px, CE | 0.8845 | 0.906 | 0.956 | 0.0481 | p = 0.490, **n.s.** |
-| 3 | 768 px, CE | *pending* | | | | |
-| 4 | 512 px, CORN ordinal | *running* | | | | |
+| 3 | 512 px, **CORN** ordinal | 0.8951 | 0.913 | 0.940 | 0.0550 | p = 0.851, **n.s.** |
+| 4 | 512 px, **CORN + task balancing** | 0.8950 | 0.911 | 0.940 | 0.0391 | p = 0.734, **n.s.** |
+| 5 | 768 px, CE | *pending — needs ~5.4 GB free* | | | | |
+
+**Three experiments, three nulls.** Nothing has yet beaten the baseline at
+α = 0.05. That is the honest state of the ablation. What the runs *have*
+produced is three mechanistic findings that are more useful than a marginal
+QWK bump would have been.
 
 ---
 
@@ -93,3 +99,103 @@ no detail the 512 cache lacks. 768 px required re-preprocessing from the raw
 nothing, since the detail was destroyed at cache time. The 768 manifest was
 verified to carry identical grades and identical 3,523 groups, so the split is
 byte-identical across resolutions.
+
+
+---
+
+## Result 2 — CORN does not help, and unweighted CORN actively hurts
+
+```
+QWK difference (CORN - CE)   +0.0021   95% CI [-0.0183, +0.0232]   p = 0.851
+Exact grade (McNemar)        36 vs 45 discordant                   p = 0.374
+Referable decision (McNemar) 16 vs 18 discordant                   p = 0.864
+```
+
+| Grade | n | CE | CORN | Δ |
+|---|---:|---:|---:|---:|
+| 1 Mild | 74 | 0.541 | **0.297** | **−0.243** |
+| 2 Moderate | 200 | 0.855 | **0.905** | **+0.050** |
+| 3 Severe | 39 | 0.359 | 0.385 | +0.026 |
+
+CORN was chosen to stop the collapse of errors into grade 2. It made that
+collapse **worse**: 49 of 74 grade-1 cases went to grade 2, against 29 for
+cross-entropy.
+
+### The cause is structural
+
+CORN trains task *j* only on samples with `y ≥ j`, asking whether `y > j`. Those
+conditional subsets inherit the label skew. Measured on the training split:
+
+| task | subset `{y≥j}` | positive rate | |
+|---|---:|---:|---|
+| j=0 | 2929 | 50.7 % | balanced |
+| **j=1** | **1485** | **80.1 %** | **badly skewed** |
+| j=2 | 1189 | 32.8 % | skewed |
+| j=3 | 390 | 60.5 % | balanced |
+
+Task j=1 asks *"given grade ≥ 1, is it worse than 1?"* and is 80 % positive,
+because grade 1 is only 296 of the 1,485 samples with grade ≥ 1. Unweighted, the
+loss-minimising answer is almost always *yes* — pushing grade 1 into grade 2.
+
+**The finding is not that CORN fails, but that unweighted CORN cannot work on a
+skewed ordinal distribution.** Its own construction guarantees it.
+
+`corn_task_pos_weights()` now computes `n_neg / n_pos` per conditional subset —
+`[0.972, 0.249, 2.049, 0.653]` here — and is enabled by default.
+
+---
+
+## Result 3 — Task balancing works during training but is discarded at selection
+
+Balanced CORN reached QWK 0.8950 (p = 0.734 vs baseline, n.s.) with per-class
+recall *worse* than the baseline at the selected checkpoint — grade 1 0.378,
+grade 3 0.308.
+
+But that is not what training produced. Mid-run epochs showed exactly the
+intended effect: epoch 8 gave grade 1 = 0.76 and grade 3 = 0.54; epoch 18 gave
+grade 1 = 0.81, the highest of any run. **Those checkpoints were discarded**,
+because `ModelCheckpoint(monitor="val/qwk")` keeps only the highest-QWK epoch.
+
+### QWK is a poor selection criterion when rare classes matter
+
+Correlation between QWK and per-class recall, across 70 epochs of three runs:
+
+| Run | corr(QWK, g2) | corr(QWK, g1) | corr(QWK, g3) |
+|---|---:|---:|---:|
+| CE baseline | −0.039 | +0.345 | +0.548 |
+| CORN | +0.124 | −0.299 | +0.363 |
+| **CORN-balanced** | **+0.793** | **−0.702** | +0.530 |
+| **Pooled (n=70)** | **+0.512** *(p<0.0001)* | −0.232 *(p=0.053)* | +0.402 *(p=0.0006)* |
+
+The general claim "QWK selects against rare classes" is **too strong** — QWK
+correlates *positively* with grade-3 recall. The accurate statement is narrower:
+
+- QWK tracks **grade-2** recall strongly and significantly (r = +0.51).
+- For **grade 1** it is weakly negative and borderline (r = −0.23, p = 0.053).
+- In the balanced-CORN run the anti-correlation was severe (g1 r = −0.70).
+
+Concretely, in that run selecting on QWK kept epoch 12 (macro-recall 0.596) over
+epoch 9 (macro-recall 0.697) — **0.100 macro-recall surrendered for 0.0097 QWK.**
+
+`val/macro_recall` is now logged every epoch, and `--monitor` selects the
+checkpoint criterion (`val/qwk`, `val/macro_recall`, or
+`val/sensitivity_referable`). The next balanced-CORN run should be selected on
+macro-recall, since QWK selection demonstrably discards the models the method
+produces.
+
+---
+
+## Cross-cutting observation: the collapse may be optimisation, not loss
+
+Every run so far — CE, CORN, balanced CORN — shows the same shape: rare-class
+recall looks balanced at epochs 1–2, then collapses into grade 2 exactly when LR
+warmup ends and the rate reaches full value. Four runs, three different losses,
+same inflection point.
+
+That consistency suggests the hedging is not primarily a property of the loss
+function but of the optimisation: at full LR with 4-sample gradients, the
+majority-class basin dominates however the loss is parameterised. If so, the
+untested levers are a gentler schedule, a longer warmup, or gradient accumulation
+for a larger effective batch — none of which change the loss at all.
+
+This is a hypothesis from four observations, not a finding.

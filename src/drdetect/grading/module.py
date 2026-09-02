@@ -153,6 +153,19 @@ class GradingModule(L.LightningModule):
             recall = float((preds[mask] == cls).mean()) if mask.any() else float("nan")
             self.log(f"val/recall_{cls}_{CLASS_NAMES[cls].replace(' ', '')}", recall)
 
+        # Macro-averaged recall: the unweighted mean over classes, so a rare
+        # class counts as much as a common one. Logged as a selection
+        # alternative to QWK, which on this data tracks grade-2 recall
+        # (r=+0.51 over 70 epochs) and, for balanced CORN, was strongly
+        # ANTI-correlated with grade-1 recall (r=-0.70). Selecting that run on
+        # QWK cost 0.100 macro-recall to gain 0.0097 QWK.
+        recalls = [
+            float((preds[targets == c] == c).mean())
+            for c in range(self.num_classes)
+            if (targets == c).any()
+        ]
+        self.log("val/macro_recall", float(np.mean(recalls)) if recalls else 0.0)
+
         self._val_logits.clear()
         self._val_targets.clear()
 
