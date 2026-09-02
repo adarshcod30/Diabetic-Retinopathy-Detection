@@ -285,19 +285,24 @@ def main() -> int:
 
     summary_path = Path("runs") / run_name / "summary.json"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
-    qwks = [r.get("best_qwk", float("nan")) for r in results]
+    # Named for the metric actually monitored -- when --monitor is not QWK,
+    # labelling this "QWK" reports one metric under another's name.
+    monitored = [r.get("best_qwk", float("nan")) for r in results]
     summary = {
         "run_name": run_name,
         "config": vars(args),
         "folds": results,
-        "qwk_mean": float(np.nanmean(qwks)),
-        "qwk_std": float(np.nanstd(qwks)),
+        "monitor": args.monitor,
+        "monitored_mean": float(np.nanmean(monitored)),
+        "monitored_std": float(np.nanstd(monitored)),
+        "qwk_mean": float(np.nanmean([r.get("final_qwk", float("nan")) for r in results])),
     }
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
 
     print(f"\n{'=' * 60}")
     print(
-        f"BEST QWK across {len(qwks)} fold(s): {summary['qwk_mean']:.4f} +/- {summary['qwk_std']:.4f}"
+        f"BEST {args.monitor} across {len(monitored)} fold(s): "
+        f"{summary['monitored_mean']:.4f} +/- {summary['monitored_std']:.4f}"
     )
     print(f"Summary: {summary_path}")
     print("\nThis is the BASELINE. Record it; every Phase 3 change is measured against it.")
