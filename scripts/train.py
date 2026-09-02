@@ -211,7 +211,7 @@ def main() -> int:
 
     summary_path = Path("runs") / run_name / "summary.json"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
-    qwks = [r.get("val/qwk", float("nan")) for r in results]
+    qwks = [r.get("best_qwk", float("nan")) for r in results]
     summary = {
         "run_name": run_name,
         "config": vars(args),
@@ -222,7 +222,9 @@ def main() -> int:
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
 
     print(f"\n{'=' * 60}")
-    print(f"QWK across {len(qwks)} fold(s): {summary['qwk_mean']:.4f} +/- {summary['qwk_std']:.4f}")
+    print(
+        f"BEST QWK across {len(qwks)} fold(s): {summary['qwk_mean']:.4f} +/- {summary['qwk_std']:.4f}"
+    )
     print(f"Summary: {summary_path}")
     print("\nThis is the BASELINE. Record it; every Phase 3 change is measured against it.")
     return 0

@@ -72,12 +72,15 @@ every dataset from memory.
 - [x] Baseline trainer (`scripts/train.py`) — EfficientNet-B0, frozen BN, cosine schedule,
       per-class recall logged every epoch
 - [x] End-to-end integration test on a synthetic APTOS (76 tests total)
-- [ ] **Download APTOS** (blocked: needs `kaggle.json`) ← only remaining step
-- [ ] Run the real baseline and record the QWK
+- [x] **Download APTOS** — 3,662 images, distribution verified against published figures
+- [x] Run the real baseline — **QWK 0.8930**, see [`06_PHASE1_RESULTS.md`](06_PHASE1_RESULTS.md)
 - [ ] W&B logging wired up (CSV logging works today)
 
 **Exit criterion:** a logged baseline QWK on APTOS validation. Expect **~0.80–0.88**. Write the number
 down; every future change is measured against it.
+
+> **Achieved: QWK 0.8930** [0.8673, 0.9155], referable sens 0.919 / spec 0.940, 30 epochs, ~2 h.
+> Above the expected range. Full analysis: [`06_PHASE1_RESULTS.md`](06_PHASE1_RESULTS.md).
 
 ---
 

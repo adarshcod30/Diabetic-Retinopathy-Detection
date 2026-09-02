@@ -32,6 +32,7 @@
 - [Results & Model Performance](#results--model-performance)
 - [Deployment & Infrastructure](#deployment--infrastructure)
 - [Prototype Scope](#prototype-scope-tier-p)
+- [Phase 1 Results](docs/06_PHASE1_RESULTS.md)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Usage](#usage)
@@ -252,11 +253,25 @@ all with bootstrap 95 % CIs, DeLong for AUC comparisons, and McNemar for paired 
 
 ## Results & Model Performance
 
-> **No results yet — models are not trained.** The table below states **targets** and the **published
-> work they are benchmarked against**. It will be replaced with measured values, confidence intervals,
-> and the full ablation once Phase 8 completes.
+### Phase 1 baseline — measured
 
-### Targets
+EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report](docs/06_PHASE1_RESULTS.md))
+
+| Metric | Value | 95% CI |
+|---|---|---|
+| QWK (5-class) | **0.8930** | [0.8673, 0.9155] |
+| Referable sensitivity | **0.919** | [0.887, 0.949] |
+| Referable specificity | **0.940** | [0.917, 0.962] |
+| ECE (uncalibrated) | 0.0646 | — |
+
+> **Internal validation, not a headline result.** The operating threshold was chosen on the same
+> split it is scored on, and that split also drove model selection — so these are optimistic. The
+> honest number comes from the locked Messidor-2 test set in Phase 8, where a ~10-point drop is
+> normal. Per-class recall is weak for grade 1 (0.54) and grade 3 (0.36); the errors are mostly
+> *safe* over-calls that stay inside the referral boundary, which is why referable sensitivity holds
+> up. Full analysis, confusion matrix and what Phase 3 must fix: [`docs/06_PHASE1_RESULTS.md`](docs/06_PHASE1_RESULTS.md).
+
+### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
 |---|---|---|
@@ -318,7 +333,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 02_LITERATURE_REVIEW.md   # annotated evidence base
 │   ├── 03_TECH_STACK.md          # tooling decisions and rationale
 │   ├── 04_ROADMAP.md             # 20-week phased plan
-│   └── 05_PROTOTYPE_SCOPE.md     # Tier-P: scaling down without breaking the science
+│   ├── 05_PROTOTYPE_SCOPE.md     # Tier-P: scaling down without breaking the science
+│   └── 06_PHASE1_RESULTS.md      # measured baseline + confusion-matrix analysis
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
