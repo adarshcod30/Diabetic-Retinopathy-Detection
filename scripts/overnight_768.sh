@@ -60,7 +60,15 @@ sleep 30                      # let memory settle after the previous process exi
 FREE=$(free_gb)
 echo "  free RAM: ${FREE} GB"
 
-if (( $(echo "$FREE >= 7.5" | bc) )); then
+# BATCH/ACCUM may be pinned by the caller, e.g. DR_BATCH=2 DR_ACCUM=2 bash ...
+if [ -n "${DR_BATCH:-}" ]; then
+    BATCH=$DR_BATCH; ACCUM=${DR_ACCUM:-1}
+    echo "  -> pinned by caller: batch $BATCH x accum $ACCUM"
+elif (( $(echo "$FREE >= 9.5" | bc) )); then
+    # Raised from 7.5 GB. A batch-4 run started with 8.8 GB free still drove
+    # swap to 77% and stalled without completing an epoch: the reading at the
+    # decision moment is transient, because other applications reclaim memory
+    # as soon as training starts competing for it. Headroom has to cover that.
     BATCH=4; ACCUM=1; echo "  -> batch 4 (5.42 GB peak)"
 elif (( $(echo "$FREE >= 5.0" | bc) )); then
     BATCH=2; ACCUM=2; echo "  -> batch 2 x accum 2 (3.25 GB peak, effective batch 4)"
