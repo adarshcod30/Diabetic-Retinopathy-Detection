@@ -61,6 +61,11 @@ def main() -> int:
     p.add_argument("--out-dir", default="models/checkpoints")
     p.add_argument("--run-name", default=None)
     p.add_argument("--smoke", action="store_true", help="2 epochs on 40 images, for wiring checks")
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue from last.ckpt if present (optimiser, LR schedule and epoch are restored)",
+    )
     p.add_argument("--allow-ungrouped", action="store_true")
     args = p.parse_args()
 
@@ -166,8 +171,16 @@ def main() -> int:
             deterministic=False,  # some MPS kernels lack deterministic variants
             logger=CSVLogger(save_dir="runs", name=run_name, version=f"fold{fold}"),
             callbacks=[
+                # save_last is what makes a run resumable: `best` is the
+                # highest-QWK epoch, not the latest state, so it carries the
+                # wrong optimiser and LR-schedule position to continue from.
                 ModelCheckpoint(
-                    dirpath=out_dir, filename="best", monitor="val/qwk", mode="max", save_top_k=1
+                    dirpath=out_dir,
+                    filename="best",
+                    monitor="val/qwk",
+                    mode="max",
+                    save_top_k=1,
+                    save_last=True,
                 ),
                 EarlyStopping(monitor="val/qwk", mode="max", patience=8, min_delta=1e-3),
                 LearningRateMonitor(logging_interval="epoch"),
@@ -175,7 +188,14 @@ def main() -> int:
             log_every_n_steps=10,
             enable_progress_bar=True,
         )
-        trainer.fit(module, train_dl, val_dl)
+        resume_from = out_dir / "last.ckpt"
+        if args.resume and resume_from.exists():
+            print(f"  resuming from {resume_from}")
+            trainer.fit(module, train_dl, val_dl, ckpt_path=str(resume_from))
+        else:
+            if args.resume:
+                print(f"  --resume given but {resume_from} not found; starting fresh")
+            trainer.fit(module, train_dl, val_dl)
 
         metrics = {k: float(v) for k, v in trainer.callback_metrics.items()}
         metrics.update(
