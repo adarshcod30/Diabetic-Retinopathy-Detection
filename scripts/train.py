@@ -55,6 +55,12 @@ def main() -> int:
     p.add_argument("--n-splits", type=int, default=5)
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--grad-clip", type=float, default=1.0, help="0 disables")
+    p.add_argument(
+        "--loss",
+        default="ce",
+        choices=["ce", "corn", "regression", "distance_ce"],
+        help="ce is the Phase 1 baseline; the others are ordinal (see grading/losses.py)",
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--no-freeze-bn", action="store_true")
     p.add_argument("--class-weights", action="store_true", help="inverse-frequency loss weighting")
@@ -76,6 +82,7 @@ def main() -> int:
     from torch.utils.data import DataLoader
 
     from drdetect.data.dataset import FundusDataset, build_transforms, load_split
+    from drdetect.grading.losses import outputs_for_loss
     from drdetect.grading.model import build_model, count_parameters
     from drdetect.grading.module import GradingModule
     from drdetect.utils.seed import seed_everything, worker_init_fn
@@ -93,12 +100,14 @@ def main() -> int:
 
     accelerator = pick_accelerator()
     epochs = 2 if args.smoke else args.epochs
-    run_name = args.run_name or f"{args.backbone}_{args.size}px_bs{args.batch_size}"
+    run_name = args.run_name or f"{args.backbone}_{args.size}px_bs{args.batch_size}_{args.loss}"
+    n_outputs = outputs_for_loss(args.loss)
 
     print(f"manifest    : {manifest}")
     print(f"accelerator : {accelerator}")
     print(f"backbone    : {args.backbone} @ {args.size}px, batch {args.batch_size}")
     print(f"epochs      : {epochs}{'  (SMOKE)' if args.smoke else ''}")
+    print(f"loss        : {args.loss} ({n_outputs} head outputs)")
 
     results = []
     for fold in [int(f) for f in args.folds.split(",")]:
@@ -142,7 +151,7 @@ def main() -> int:
         val_dl = DataLoader(val_ds, shuffle=False, **common)
 
         model = build_model(
-            args.backbone, num_outputs=5, pretrained=True, freeze_bn=not args.no_freeze_bn
+            args.backbone, num_outputs=n_outputs, pretrained=True, freeze_bn=not args.no_freeze_bn
         )
         total, trainable = count_parameters(model)
         print(f"  params: {total:,} total, {trainable:,} trainable")
@@ -154,6 +163,7 @@ def main() -> int:
             model,
             lr=args.lr,
             weight_decay=args.weight_decay,
+            loss_name=args.loss,
             class_weights=class_weights,
             max_epochs=epochs,
         )
@@ -197,17 +207,39 @@ def main() -> int:
                 print(f"  --resume given but {resume_from} not found; starting fresh")
             trainer.fit(module, train_dl, val_dl)
 
-        metrics = {k: float(v) for k, v in trainer.callback_metrics.items()}
+        # callback_metrics holds the LAST epoch's values, but the checkpoint on
+        # disk is the BEST epoch. Reporting the former while saving the latter
+        # makes the summary describe a different model than the one shipped --
+        # on the Phase 1 baseline that understated QWK by 0.022, which would
+        # bias every later comparison in the same direction.
+        ckpt_cb = trainer.checkpoint_callback
+        best_qwk = (
+            float(ckpt_cb.best_model_score)
+            if ckpt_cb is not None and ckpt_cb.best_model_score is not None
+            else float("nan")
+        )
+        final_qwk = float(trainer.callback_metrics.get("val/qwk", float("nan")))
+
+        metrics = {f"final/{k}": float(v) for k, v in trainer.callback_metrics.items()}
         metrics.update(
             {
                 "fold": fold,
                 "split_strategy": strategy,
                 "n_train": len(train_recs),
                 "n_val": len(val_recs),
+                "loss": args.loss,
+                "image_size": args.size,
+                "best_qwk": best_qwk,
+                "final_qwk": final_qwk,
+                "epochs_run": trainer.current_epoch + 1,
+                "best_checkpoint": str(ckpt_cb.best_model_path) if ckpt_cb else "",
             }
         )
         results.append(metrics)
-        print(f"\nFold {fold}: QWK={metrics.get('val/qwk', float('nan')):.4f}")
+        print(
+            f"\nFold {fold}: best QWK={best_qwk:.4f} "
+            f"(final epoch {final_qwk:.4f}, {metrics['epochs_run']} epochs)"
+        )
 
     summary_path = Path("runs") / run_name / "summary.json"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
