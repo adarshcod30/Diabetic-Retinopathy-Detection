@@ -240,6 +240,10 @@ def main() -> int:
             else float("nan")
         )
         final_qwk = float(trainer.callback_metrics.get("val/qwk", float("nan")))
+        # Final value of whatever is MONITORED, so "best" and "final" are the
+        # same quantity. Printing best-macro-recall beside final-QWK invites a
+        # comparison between two different metrics.
+        final_monitored = float(trainer.callback_metrics.get(args.monitor, float("nan")))
 
         metrics = {f"final/{k}": float(v) for k, v in trainer.callback_metrics.items()}
         metrics.update(
@@ -253,6 +257,7 @@ def main() -> int:
                 "best_qwk": best_monitored,
                 "monitor": args.monitor,
                 "final_qwk": final_qwk,
+                "final_monitored": final_monitored,
                 "epochs_run": trainer.current_epoch + 1,
                 "best_checkpoint": str(ckpt_cb.best_model_path) if ckpt_cb else "",
             }
@@ -260,7 +265,8 @@ def main() -> int:
         results.append(metrics)
         print(
             f"\nFold {fold}: best {args.monitor}={best_monitored:.4f} "
-            f"(final epoch {final_qwk:.4f}, {metrics['epochs_run']} epochs)"
+            f"(final {final_monitored:.4f}, QWK {final_qwk:.4f}, "
+            f"{metrics['epochs_run']} epochs)"
         )
 
     summary_path = Path("runs") / run_name / "summary.json"
