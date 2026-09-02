@@ -167,3 +167,61 @@ class TestFactory:
         logits = torch.randn(8, n, requires_grad=True)
         build_loss(name)(logits, torch.randint(0, 5, (8,))).backward()
         assert logits.grad is not None and torch.isfinite(logits.grad).all()
+
+
+class TestCornTaskBalancing:
+    """CORN's conditional subsets inherit the label skew.
+
+    Measured on APTOS: task j=1 ("given grade >= 1, is it worse than 1?") is
+    80.1% positive, because grade 1 is only 296 of 1485 samples with grade >= 1.
+    Unweighted, that pushed 49 of 74 grade-1 validation cases into grade 2 and
+    dropped grade-1 recall from 0.541 to 0.297.
+    """
+
+    def _aptos_like(self):
+        from collections import Counter  # noqa: F401
+
+        counts = {0: 1444, 1: 296, 2: 799, 3: 154, 4: 236}  # APTOS train split
+        return np.repeat(list(counts), list(counts.values()))
+
+    def test_detects_the_skewed_task(self):
+        from drdetect.grading.losses import corn_task_pos_weights
+
+        w = corn_task_pos_weights(self._aptos_like())
+        assert len(w) == 4
+        # task 1 is majority-positive, so its pos_weight must be well below 1
+        assert w[1] < 0.4, f"task 1 weight {w[1]} does not counteract an 80% positive rate"
+        # task 2 is minority-positive, so its weight must exceed 1
+        assert w[2] > 1.0, f"task 2 weight {w[2]} does not counteract a 33% positive rate"
+
+    def test_balanced_labels_give_unit_weights(self):
+        from drdetect.grading.losses import corn_task_pos_weights
+
+        # a distribution where each task is 50/50
+        y = np.array([0] * 8 + [1] * 4 + [2] * 2 + [3] * 1 + [4] * 1)
+        w = corn_task_pos_weights(y)
+        assert all(0.4 < x < 2.6 for x in w), w
+
+    def test_weights_change_the_loss(self):
+        from drdetect.grading.losses import build_loss
+
+        logits = torch.randn(32, 4, generator=torch.Generator().manual_seed(0))
+        targets = torch.randint(0, 5, (32,), generator=torch.Generator().manual_seed(1))
+        plain = build_loss("corn")(logits, targets)
+        weighted = build_loss("corn", task_pos_weights=[1.0, 0.25, 2.0, 0.65])(logits, targets)
+        assert not torch.isclose(plain, weighted), "task weights had no effect"
+
+    def test_weighted_loss_still_differentiable(self):
+        from drdetect.grading.losses import build_loss
+
+        logits = torch.randn(16, 4, requires_grad=True)
+        build_loss("corn", task_pos_weights=[1.0, 0.25, 2.0, 0.65])(
+            logits, torch.randint(0, 5, (16,))
+        ).backward()
+        assert logits.grad is not None and torch.isfinite(logits.grad).all()
+
+    def test_handles_absent_class(self):
+        from drdetect.grading.losses import corn_task_pos_weights
+
+        w = corn_task_pos_weights(np.array([0, 0, 0, 1, 1]))  # no grades 2-4
+        assert all(np.isfinite(w))

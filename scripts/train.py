@@ -64,6 +64,13 @@ def main() -> int:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--no-freeze-bn", action="store_true")
     p.add_argument("--class-weights", action="store_true", help="inverse-frequency loss weighting")
+    p.add_argument(
+        "--no-corn-balance",
+        action="store_true",
+        help="disable per-task rebalancing for CORN. Its conditional subsets are badly "
+        "skewed (task j=1 is 80%% positive on APTOS), and unweighted CORN measurably "
+        "worsens grade-1 recall -- see docs/07_PHASE3_RESULTS.md",
+    )
     p.add_argument("--out-dir", default="models/checkpoints")
     p.add_argument("--run-name", default=None)
     p.add_argument("--smoke", action="store_true", help="2 epochs on 40 images, for wiring checks")
@@ -82,7 +89,7 @@ def main() -> int:
     from torch.utils.data import DataLoader
 
     from drdetect.data.dataset import FundusDataset, build_transforms, load_split
-    from drdetect.grading.losses import outputs_for_loss
+    from drdetect.grading.losses import corn_task_pos_weights, outputs_for_loss
     from drdetect.grading.model import build_model, count_parameters
     from drdetect.grading.module import GradingModule
     from drdetect.utils.seed import seed_everything, worker_init_fn
@@ -131,6 +138,11 @@ def main() -> int:
         train_counts = np.bincount([r.label for r in train_recs], minlength=5)
         print("  train class counts:", train_counts.tolist())
 
+        task_pos_weights = None
+        if args.loss == "corn" and not args.no_corn_balance:
+            task_pos_weights = corn_task_pos_weights([r.label for r in train_recs])
+            print(f"  CORN task weights: {[round(w, 3) for w in task_pos_weights]}")
+
         class_weights = None
         if args.class_weights:
             inv = train_counts.sum() / np.maximum(train_counts, 1)
@@ -165,6 +177,7 @@ def main() -> int:
             weight_decay=args.weight_decay,
             loss_name=args.loss,
             class_weights=class_weights,
+            task_pos_weights=task_pos_weights,
             max_epochs=epochs,
         )
 

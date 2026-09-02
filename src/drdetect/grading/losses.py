@@ -39,10 +39,13 @@ import torch.nn.functional as F
 
 __all__ = [
     "CornLoss",
+    "decode_output",
+    "naive_referable_cut",
     "OrdinalRegressionLoss",
     "DistanceWeightedCE",
     "corn_probabilities",
     "corn_predict",
+    "corn_task_pos_weights",
     "regression_predict",
     "fit_thresholds",
     "build_loss",
@@ -57,12 +60,21 @@ class CornLoss(nn.Module):
     y >= j, so each binary problem is genuinely conditional.
     """
 
-    def __init__(self, num_classes: int = 5, class_weights: torch.Tensor | None = None):
+    def __init__(
+        self,
+        num_classes: int = 5,
+        class_weights: torch.Tensor | None = None,
+        task_pos_weights: torch.Tensor | None = None,
+    ):
         super().__init__()
         self.num_classes = num_classes
         self.register_buffer(
             "class_weights",
             class_weights if class_weights is not None else torch.ones(num_classes),
+        )
+        self.register_buffer(
+            "task_pos_weights",
+            task_pos_weights if task_pos_weights is not None else torch.ones(num_classes - 1),
         )
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
@@ -80,7 +92,11 @@ class CornLoss(nn.Module):
             binary = (targets[subset] > j).float()
             w = self.class_weights[targets[subset]]
             bce = F.binary_cross_entropy_with_logits(
-                logits[subset, j], binary, weight=w, reduction="sum"
+                logits[subset, j],
+                binary,
+                weight=w,
+                pos_weight=self.task_pos_weights[j],
+                reduction="sum",
             )
             losses.append(bce)
             total += float(w.sum())
@@ -88,6 +104,38 @@ class CornLoss(nn.Module):
         if not losses:
             return logits.sum() * 0.0  # keeps the graph connected
         return torch.stack(losses).sum() / max(total, 1.0)
+
+
+def corn_task_pos_weights(labels, num_classes: int = 5) -> list[float]:
+    """Per-task positive weights that rebalance CORN's conditional subsets.
+
+    CORN trains task j only on samples with y >= j, asking whether y > j. Those
+    subsets inherit the label distribution and are usually NOT balanced. Measured
+    on the APTOS training split:
+
+        task j=0   2929 samples,  50.7% positive   balanced
+        task j=1   1485 samples,  80.1% positive   badly skewed
+        task j=2   1189 samples,  32.8% positive   skewed
+        task j=3    390 samples,  60.5% positive   balanced
+
+    Task j=1 asks "given grade >= 1, is it worse than 1?" and is 80% positive,
+    because grade 1 is only 296 of 1485 samples with grade >= 1. Unweighted, the
+    loss-minimising answer is almost always yes, which pushes grade-1 cases into
+    grade 2. Measured consequence: unweighted CORN sent 49 of 74 grade-1
+    validation cases to grade 2, against 29 for plain cross-entropy, and grade-1
+    recall fell from 0.541 to 0.297.
+
+    Returns n_negative / n_positive per task, the standard BCE `pos_weight`,
+    which makes each conditional task cost-balanced.
+    """
+    y = np.asarray(labels)
+    weights = []
+    for j in range(num_classes - 1):
+        subset = y[y >= j]
+        pos = int((subset > j).sum())
+        neg = int(len(subset) - pos)
+        weights.append(float(neg / pos) if pos > 0 else 1.0)
+    return weights
 
 
 def corn_probabilities(logits: torch.Tensor) -> torch.Tensor:
@@ -222,14 +270,61 @@ def outputs_for_loss(loss_name: str, num_classes: int = 5) -> int:
     }[loss_name]
 
 
-def build_loss(name: str, *, num_classes: int = 5, class_weights: list[float] | None = None):
+def build_loss(
+    name: str,
+    *,
+    num_classes: int = 5,
+    class_weights: list[float] | None = None,
+    task_pos_weights: list[float] | None = None,
+):
     w = torch.tensor(class_weights, dtype=torch.float) if class_weights else None
     if name == "ce":
         return nn.CrossEntropyLoss(weight=w)
     if name == "corn":
-        return CornLoss(num_classes, class_weights=w)
+        tw = (
+            torch.tensor(task_pos_weights, dtype=torch.float)
+            if task_pos_weights is not None
+            else None
+        )
+        return CornLoss(num_classes, class_weights=w, task_pos_weights=tw)
     if name == "regression":
         return OrdinalRegressionLoss()
     if name == "distance_ce":
         return DistanceWeightedCE(num_classes, class_weights=w)
     raise ValueError(f"unknown loss {name!r}; expected ce, corn, regression or distance_ce")
+
+
+def decode_output(output: torch.Tensor, loss_name: str) -> tuple[np.ndarray, np.ndarray]:
+    """Map a raw head output to (predicted grade, referable score).
+
+    Single source of truth for decoding, shared by the training module and the
+    evaluation script. Duplicating this logic once caused an evaluation to load a
+    5-output head against a 4-output CORN checkpoint; keeping one implementation
+    makes that class of mismatch impossible.
+
+    Each loss parameterises the head differently:
+      ce / distance_ce -- K-way softmax; referable = sum of P(class >= 2)
+      corn             -- K-1 chained sigmoids; referable = P(y > 1) directly
+      regression       -- one continuous value, which itself ranks severity
+
+    The referable score need only be monotone in severity; threshold selection
+    handles the scale.
+    """
+    if loss_name == "corn":
+        cum = corn_probabilities(output)  # P(y > j), monotone by construction
+        return (cum > 0.5).sum(dim=1).numpy(), cum[:, 1].numpy()
+
+    if loss_name == "regression":
+        return regression_predict(output).numpy(), output.squeeze(-1).numpy()
+
+    probs = torch.softmax(output, dim=1).numpy()
+    return probs.argmax(axis=1), probs[:, 2:].sum(axis=1)
+
+
+def naive_referable_cut(loss_name: str) -> float:
+    """The 'no calibration' cut point, whose scale depends on the head.
+
+    Only a progress signal during training -- the reported operating point is
+    chosen for target sensitivity in scripts/evaluate.py.
+    """
+    return 1.5 if loss_name == "regression" else 0.5

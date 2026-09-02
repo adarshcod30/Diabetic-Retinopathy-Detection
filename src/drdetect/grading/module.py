@@ -21,11 +21,7 @@ from drdetect.eval.metrics import (
     quadratic_weighted_kappa,
     referable_labels,
 )
-from drdetect.grading.losses import (
-    build_loss,
-    corn_probabilities,
-    regression_predict,
-)
+from drdetect.grading.losses import build_loss, decode_output, naive_referable_cut
 
 __all__ = ["GradingModule"]
 
@@ -42,6 +38,7 @@ class GradingModule(L.LightningModule):
         num_classes: int = 5,
         loss_name: str = "ce",
         class_weights: list[float] | None = None,
+        task_pos_weights: list[float] | None = None,
         warmup_epochs: int = 3,
         max_epochs: int = 40,
     ):
@@ -52,7 +49,12 @@ class GradingModule(L.LightningModule):
         self.model = model
         self.num_classes = num_classes
         self.loss_name = loss_name
-        self.criterion = build_loss(loss_name, num_classes=num_classes, class_weights=class_weights)
+        self.criterion = build_loss(
+            loss_name,
+            num_classes=num_classes,
+            class_weights=class_weights,
+            task_pos_weights=task_pos_weights,
+        )
 
         self._val_logits: list[torch.Tensor] = []
         self._val_targets: list[torch.Tensor] = []
@@ -119,29 +121,8 @@ class GradingModule(L.LightningModule):
         self._val_targets.append(y.detach().cpu())
 
     def decode(self, output: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
-        """Map raw model output to (predicted grade, referable score).
-
-        Each loss parameterises the head differently, so decoding must match:
-          ce / distance_ce -> K-way softmax; referable = sum of P(class >= 2)
-          corn             -> K-1 chained sigmoids; referable = P(y > 1) directly
-          regression       -> one continuous value; the value itself ranks severity
-
-        Referable score only needs to be monotone in severity -- threshold
-        selection handles the scale.
-        """
-        if self.loss_name == "corn":
-            cum = corn_probabilities(output)  # P(y > j)
-            preds = (cum > 0.5).sum(dim=1).numpy()
-            referable = cum[:, 1].numpy()  # P(y > 1) == P(grade >= 2)
-            return preds, referable
-
-        if self.loss_name == "regression":
-            preds = regression_predict(output).numpy()
-            referable = output.squeeze(-1).numpy()
-            return preds, referable
-
-        probs = torch.softmax(output, dim=1).numpy()
-        return probs.argmax(axis=1), probs[:, 2:].sum(axis=1)
+        """Delegate to the shared decoder so training and evaluation cannot drift."""
+        return decode_output(output, self.loss_name)
 
     def on_validation_epoch_end(self):
         if not self._val_logits:
@@ -160,7 +141,7 @@ class GradingModule(L.LightningModule):
         y_ref = referable_labels(targets)
         # 0.5 is a naive cut and is only a progress signal; the reported
         # operating point is chosen for target sensitivity in scripts/evaluate.py.
-        cut = 1.5 if self.loss_name == "regression" else 0.5
+        cut = naive_referable_cut(self.loss_name)
         scores = binary_scores(y_ref, (p_ref >= cut).astype(int))
         self.log("val/sensitivity_referable", scores.sensitivity, prog_bar=True)
         self.log("val/specificity_referable", scores.specificity)

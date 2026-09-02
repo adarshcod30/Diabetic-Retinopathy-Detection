@@ -42,6 +42,12 @@ def main() -> int:
     p.add_argument("--manifest", default=None)
     p.add_argument("--data-root", default="data/processed")
     p.add_argument("--backbone", default="efficientnet_b0")
+    p.add_argument(
+        "--loss",
+        default="ce",
+        choices=["ce", "corn", "regression", "distance_ce"],
+        help="must match how the checkpoint was trained; it determines head size and decoding",
+    )
     p.add_argument("--size", type=int, default=512)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--workers", type=int, default=2)
@@ -67,6 +73,7 @@ def main() -> int:
         quadratic_weighted_kappa,
         referable_labels,
     )
+    from drdetect.grading.losses import decode_output, naive_referable_cut, outputs_for_loss
     from drdetect.grading.model import build_model
     from drdetect.utils.seed import seed_everything
 
@@ -84,7 +91,8 @@ def main() -> int:
         if torch.cuda.is_available()
         else ("mps" if torch.backends.mps.is_available() else "cpu")
     )
-    model = build_model(args.backbone, num_outputs=5, pretrained=False, freeze_bn=True)
+    n_outputs = outputs_for_loss(args.loss)
+    model = build_model(args.backbone, num_outputs=n_outputs, pretrained=False, freeze_bn=True)
 
     ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     state = ckpt.get("state_dict", ckpt)
@@ -94,19 +102,20 @@ def main() -> int:
 
     print(f"checkpoint : {args.checkpoint}")
     print(f"device     : {device} | split strategy: {strategy}")
+    print(f"loss       : {args.loss} ({n_outputs} head outputs)")
     print(f"evaluating : {len(val_recs)} images\n")
 
-    probs_all, targets_all = [], []
+    outputs_all, targets_all = [], []
     with torch.no_grad():
         for i, (x, y) in enumerate(dl, 1):
-            probs_all.append(torch.softmax(model(x.to(device)), dim=1).float().cpu().numpy())
+            outputs_all.append(model(x.to(device)).float().cpu())
             targets_all.append(y.numpy())
             if i % 20 == 0:
                 print(f"  {i * args.batch_size}/{len(val_recs)}", flush=True)
 
-    probs = np.concatenate(probs_all)
+    outputs = torch.cat(outputs_all)
     targets = np.concatenate(targets_all)
-    preds = probs.argmax(axis=1)
+    preds, p_ref = decode_output(outputs, args.loss)
 
     qwk, qwk_lo, qwk_hi = bootstrap_ci(
         quadratic_weighted_kappa, targets, preds, n_resamples=args.bootstrap, seed=args.seed
@@ -114,9 +123,7 @@ def main() -> int:
     acc = float((preds == targets).mean())
 
     y_ref = referable_labels(targets)
-    p_ref = probs[:, 2:].sum(axis=1)
-
-    naive = evaluate_at_threshold(y_ref, p_ref, 0.5)
+    naive = evaluate_at_threshold(y_ref, p_ref, naive_referable_cut(args.loss))
     thr = choose_threshold_for_sensitivity(y_ref, p_ref, target_sensitivity=args.target_sensitivity)
     tuned = evaluate_at_threshold(y_ref, p_ref, thr)
 
@@ -169,6 +176,7 @@ def main() -> int:
         json.dumps(
             {
                 "checkpoint": args.checkpoint,
+                "loss": args.loss,
                 "n_images": len(val_recs),
                 "split_strategy": strategy,
                 "qwk": qwk,
