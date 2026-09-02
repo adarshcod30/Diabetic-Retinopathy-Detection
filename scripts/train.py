@@ -56,6 +56,15 @@ def main() -> int:
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--grad-clip", type=float, default=1.0, help="0 disables")
     p.add_argument(
+        "--accum",
+        type=int,
+        default=1,
+        help="gradient accumulation steps. Effective batch = batch-size * accum. "
+        "Lets a memory-constrained machine train at a larger effective batch, and "
+        "is the untested lever for the grade-2 collapse (see docs/07_PHASE3_RESULTS.md). "
+        "Note it does NOT fix BatchNorm statistics, which are per micro-batch.",
+    )
+    p.add_argument(
         "--monitor",
         default="val/qwk",
         choices=["val/qwk", "val/macro_recall", "val/sensitivity_referable"],
@@ -119,7 +128,11 @@ def main() -> int:
 
     print(f"manifest    : {manifest}")
     print(f"accelerator : {accelerator}")
-    print(f"backbone    : {args.backbone} @ {args.size}px, batch {args.batch_size}")
+    eff = args.batch_size * args.accum
+    print(
+        f"backbone    : {args.backbone} @ {args.size}px, batch {args.batch_size}"
+        + (f" x{args.accum} accum = effective {eff}" if args.accum > 1 else "")
+    )
     print(f"epochs      : {epochs}{'  (SMOKE)' if args.smoke else ''}")
     print(f"loss        : {args.loss} ({n_outputs} head outputs)")
     print(f"monitor     : {args.monitor}")
@@ -198,6 +211,7 @@ def main() -> int:
             # noisy batch can blow the loss up by two orders of magnitude and
             # collapse the model to one class -- observed on this project.
             gradient_clip_val=args.grad_clip if args.grad_clip > 0 else None,
+            accumulate_grad_batches=args.accum,
             precision="32-true",  # MPS fp16 is unreliable for BN-heavy nets
             deterministic=False,  # some MPS kernels lack deterministic variants
             logger=CSVLogger(save_dir="runs", name=run_name, version=f"fold{fold}"),
