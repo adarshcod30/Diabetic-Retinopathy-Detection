@@ -20,12 +20,26 @@ free_gb() {
         END{gsub(/\./,"",f); gsub(/\./,"",i); printf "%.1f", (f+i)*p/1073741824}'
 }
 
+# Match the EXECUTABLE, not the command-line text. `pgrep -f scripts/train.py`
+# also matches anything that merely mentions that path -- including a monitoring
+# shell whose own script contains `pkill -f scripts/train.py`. That produced a
+# deadlock: the watchdog watching for training kept the waiter waiting forever.
+training_running() {
+    local pid
+    for pid in $(pgrep -f "scripts/train\.py" 2>/dev/null); do
+        case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
+            *[Pp]ython*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 echo "[1/3] waiting for the current training run to finish..."
 for _ in $(seq 1 240); do
-    pgrep -f "scripts/train.py" >/dev/null || break
+    training_running || break
     sleep 60
 done
-if pgrep -f "scripts/train.py" >/dev/null; then
+if training_running; then
     echo "ABORT: a training run is still active after 4 hours"; exit 1
 fi
 echo "  clear"
