@@ -20,7 +20,8 @@ referable) with **paired** significance tests.
 | 2 | 384 px, CE | 0.8845 | 0.906 | 0.956 | 0.0481 | p = 0.490, **n.s.** |
 | 3 | 512 px, **CORN** ordinal | 0.8951 | 0.913 | 0.940 | 0.0550 | p = 0.851, **n.s.** |
 | 4 | 512 px, **CORN + task balancing** | 0.8950 | 0.911 | 0.940 | 0.0391 | p = 0.734, **n.s.** |
-| 5 | 768 px, CE | *pending — needs ~5.4 GB free* | | | | |
+| 5 | 512 px, CORN + macro-recall selection | 0.8790 | 0.903 | 0.959 | 0.0620 | p = 0.749, **n.s.** |
+| 6 | 768 px, CE | *running* | | | | |
 
 **Three experiments, three nulls.** Nothing has yet beaten the baseline at
 α = 0.05. That is the honest state of the ablation. What the runs *have*
@@ -199,3 +200,71 @@ untested levers are a gentler schedule, a longer warmup, or gradient accumulatio
 for a larger effective batch — none of which change the loss at all.
 
 This is a hypothesis from four observations, not a finding.
+
+
+---
+
+## Result 4 — Macro-recall selection improves class balance and *degrades referral safety*
+
+Selecting the checkpoint on `val/macro_recall` did what Result 3 predicted: the
+rare classes improved substantially.
+
+| Grade | n | CE | CORN-macro | Δ |
+|---|---:|---:|---:|---:|
+| 0 No DR | 361 | 0.981 | 0.989 | +0.008 |
+| 1 Mild | 74 | 0.541 | **0.716** | **+0.176** |
+| 2 Moderate | 200 | 0.855 | **0.630** | **−0.225** |
+| 3 Severe | 39 | 0.359 | **0.564** | **+0.205** |
+| 4 PDR | 59 | 0.458 | 0.492 | +0.034 |
+
+**But the gain was paid for in the one place a screening tool cannot afford it.**
+
+| | CE | CORN-macro |
+|---|---:|---:|
+| Grade-2 (referable) cases predicted grade 0 or 1 | 15/200 (7.5 %) | **39/200 (19.5 %)** |
+| All referable cases missed at argmax | 18/298 (6.0 %) | **46/298 (15.4 %)** |
+
+### Why this happens, and why it was foreseeable
+
+Macro-averaged recall is the unweighted mean over classes. It therefore scores
+**grade 2 → grade 1** and **grade 2 → grade 3** identically. Clinically they are
+nothing alike: grade 2 is referable and grade 1 is not, so the first crosses the
+referral boundary and the second stays safely inside it.
+
+Optimising a boundary-blind metric produced a model that redistributes grade 2
+in both directions, and the downward half is harmful. Grade-2 recall fell 0.225,
+and 38 of those cases landed in grade 1.
+
+### The threshold hides it
+
+At each model's chosen operating point the two are statistically indistinguishable
+— sensitivity 0.920 vs 0.903, McNemar p = 0.749 — because the threshold is applied
+to the continuous referable score, not to argmax. That is precisely what makes
+this dangerous: **the aggregate operating-point metrics look fine while the
+underlying grade assignment is materially less safe**, and the model depends more
+heavily on threshold tuning to compensate.
+
+### Correction to Result 3's recommendation
+
+Result 3 concluded that "the next balanced-CORN run should be selected on
+macro-recall". **That recommendation was wrong.** Macro-recall is a better
+selection criterion than QWK *for per-class balance*, and a worse one for the
+clinical task.
+
+The right criterion for a referral tool must respect the referral boundary.
+`--monitor val/sensitivity_referable` already exists and is the better default;
+a cost-weighted objective that penalises boundary crossings asymmetrically would
+be better still, and is untested.
+
+### What this says about the project's metrics generally
+
+Three selection criteria, three different failure modes:
+
+| Criterion | Optimises | Fails by |
+|---|---|---|
+| `val/qwk` | ordinal agreement | tracking grade-2 recall; discards balanced models |
+| `val/macro_recall` | per-class balance | ignoring the referral boundary; 2.5× more missed referrals |
+| `val/sensitivity_referable` | the clinical decision | untested here; likely to sacrifice specificity |
+
+No single scalar captures the objective. The honest resolution is to report all
+three and choose explicitly, which is what the ablation table now does.
