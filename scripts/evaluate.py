@@ -184,6 +184,15 @@ def main() -> int:
                 "naive_specificity": naive.specificity,
                 "ece": ece,
                 "confusion_matrix": cm.tolist(),
+                # Per-sample outputs, so two runs can be compared with PAIRED
+                # tests. Comparing overlapping confidence intervals is not a
+                # significance test: two intervals can overlap while the paired
+                # difference is highly significant, because the same images are
+                # scored by both models.
+                "image_ids": [r.image_id for r in val_recs],
+                "targets": targets.tolist(),
+                "predictions": preds.tolist(),
+                "referable_score": p_ref.tolist(),
                 "per_class_recall": {
                     CLASS_NAMES[c]: (
                         float((preds[targets == c] == c).mean()) if (targets == c).any() else None
