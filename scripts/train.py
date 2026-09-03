@@ -56,6 +56,22 @@ def main() -> int:
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--grad-clip", type=float, default=1.0, help="0 disables")
     p.add_argument(
+        "--warmup-epochs",
+        type=int,
+        default=3,
+        help="LR warmup length. GradingModule has always accepted this but train.py "
+        "never forwarded it, so the module default of 3 silently won. Step-matching "
+        "warmup across accumulation settings requires it (see docs/07).",
+    )
+    p.add_argument(
+        "--patience",
+        type=int,
+        default=8,
+        help="early-stopping patience in EPOCHS. An epoch is 732/accum optimiser "
+        "steps, so at --accum 4 the default buys a quarter of the updates it buys "
+        "the baseline; raise it to disable when step-matching.",
+    )
+    p.add_argument(
         "--accum",
         type=int,
         default=1,
@@ -97,6 +113,22 @@ def main() -> int:
     )
     p.add_argument("--allow-ungrouped", action="store_true")
     args = p.parse_args()
+
+    if args.accum < 1:
+        # Lightning treats a negative accum as 1 (ready %% -1 == 0 always holds),
+        # so it would run silently at the wrong effective batch.
+        p.error("--accum must be >= 1")
+    if args.accum > 1 and (args.loss == "corn" or args.class_weights):
+        # CornLoss normalises by a denominator that depends on the micro-batch's
+        # label composition, and weighted CE divides by the micro-batch's target
+        # weight sum, so accumulating N micro-batches is not the same function as
+        # one batch of 4N. Measured relative gradient differences: 0.67-1.64.
+        # Unweighted ce / distance_ce / regression are exact to ~1e-7.
+        p.error(
+            "--accum is not equivalent to a larger batch for CORN or class-weighted "
+            "losses: they normalise per micro-batch. Use --loss ce without "
+            "--class-weights, or --accum 1."
+        )
 
     import lightning as L
     import numpy as np
@@ -195,6 +227,15 @@ def main() -> int:
             "pin_memory": accelerator == "gpu",
         }
         train_dl = DataLoader(train_ds, shuffle=True, drop_last=True, **common)
+        if len(train_dl) % args.accum:
+            print(
+                f"\nERROR: --accum {args.accum} does not divide {len(train_dl)} "
+                f"micro-batches/epoch ({len(train_dl) % args.accum} left over).\n"
+                f"Every epoch would end with a partial-window update at a different "
+                f"effective batch. Use an accum that divides {len(train_dl)}.",
+                file=sys.stderr,
+            )
+            return 1
         val_dl = DataLoader(val_ds, shuffle=False, **common)
 
         model = build_model(
@@ -205,7 +246,15 @@ def main() -> int:
         if not args.no_freeze_bn:
             print(f"  frozen BatchNorm layers: {model.n_frozen_bn}")
 
-        print(f"  lr {args.lr:.1e}, grad-clip {args.grad_clip}, warmup 3 epochs")
+        steps_per_epoch = len(train_dl) // args.accum
+        print(
+            f"  lr {args.lr:.1e}, grad-clip {args.grad_clip}, "
+            f"warmup {args.warmup_epochs} epochs ({args.warmup_epochs * steps_per_epoch} steps)"
+        )
+        print(
+            f"  {steps_per_epoch} optimiser steps/epoch, "
+            f"{steps_per_epoch * epochs} over {epochs} epochs"
+        )
         module = GradingModule(
             model,
             lr=args.lr,
@@ -213,6 +262,7 @@ def main() -> int:
             loss_name=args.loss,
             class_weights=class_weights,
             task_pos_weights=task_pos_weights,
+            warmup_epochs=args.warmup_epochs,
             max_epochs=epochs,
         )
 
@@ -239,7 +289,14 @@ def main() -> int:
             accumulate_grad_batches=args.accum,
             precision="32-true",  # MPS fp16 is unreliable for BN-heavy nets
             deterministic=False,  # some MPS kernels lack deterministic variants
-            logger=CSVLogger(save_dir="runs", name=run_name, version=f"fold{fold}"),
+            # Default flush is every 100 logged steps -- under twice per epoch at
+            # 183 steps/epoch. A run stopped by hand would lose its tail.
+            logger=CSVLogger(
+                save_dir="runs",
+                name=run_name,
+                version=f"fold{fold}",
+                flush_logs_every_n_steps=25,
+            ),
             callbacks=[
                 # save_last is what makes a run resumable: `best` is the
                 # highest-QWK epoch, not the latest state, so it carries the
@@ -252,13 +309,19 @@ def main() -> int:
                     save_top_k=1,
                     save_last=True,
                 ),
-                EarlyStopping(monitor=args.monitor, mode="max", patience=8, min_delta=1e-3),
+                # An unmonitored every-epoch checkpoint. ModelCheckpoint only writes
+                # last.ckpt on epochs where a top-k save also fired, so --resume could
+                # silently rewind to a much earlier epoch.
+                ModelCheckpoint(dirpath=out_dir, filename="latest", monitor=None, every_n_epochs=1),
+                EarlyStopping(
+                    monitor=args.monitor, mode="max", patience=args.patience, min_delta=1e-3
+                ),
                 LearningRateMonitor(logging_interval="epoch"),
             ],
             log_every_n_steps=10,
             enable_progress_bar=True,
         )
-        resume_from = out_dir / "last.ckpt"
+        resume_from = out_dir / "latest.ckpt"
         if args.resume and resume_from.exists():
             print(f"  resuming from {resume_from}")
             trainer.fit(module, train_dl, val_dl, ckpt_path=str(resume_from))
@@ -298,6 +361,14 @@ def main() -> int:
                 "final_qwk": final_qwk,
                 "final_monitored": final_monitored,
                 "epochs_run": trainer.current_epoch + 1,
+                # Epochs are the misleading unit when accumulation changes what an
+                # epoch costs. Record the optimisation budget explicitly.
+                "accum": args.accum,
+                "effective_batch": args.batch_size * args.accum,
+                "steps_per_epoch": len(train_dl) // args.accum,
+                "optimiser_steps": int(trainer.global_step),
+                "warmup_epochs": args.warmup_epochs,
+                "warmup_steps": args.warmup_epochs * (len(train_dl) // args.accum),
                 "best_checkpoint": str(ckpt_cb.best_model_path) if ckpt_cb else "",
             }
         )

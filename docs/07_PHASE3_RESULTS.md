@@ -185,20 +185,68 @@ produces.
 
 ---
 
-## Cross-cutting observation: the collapse may be optimisation, not loss
+## Cross-cutting observation — CORRECTED
 
-Every run so far — CE, CORN, balanced CORN — shows the same shape: rare-class
-recall looks balanced at epochs 1–2, then collapses into grade 2 exactly when LR
-warmup ends and the rate reaches full value. Four runs, three different losses,
-same inflection point.
+> ⚠️ **An earlier version of this section was wrong on two factual claims, and the
+> correction matters because it is the premise for the gradient-accumulation
+> experiment.** Both errors were found by re-reading the metrics CSVs the section
+> itself cites. The original text is superseded by what follows.
 
-That consistency suggests the hedging is not primarily a property of the loss
-function but of the optimisation: at full LR with 4-sample gradients, the
-majority-class basin dominates however the loss is parameterised. If so, the
-untested levers are a gentler schedule, a longer warmup, or gradient accumulation
-for a larger effective batch — none of which change the loss at all.
+### What was claimed, and what the data show
 
-This is a hypothesis from four observations, not a finding.
+**Claim 1 — "rare-class recall looks balanced at epochs 1–2, then collapses."**
+False. Grade-3 recall is **exactly 0.000 at epochs 0 and 1** in all three CE runs,
+and grade 4 is 0.000–0.051. Only **epoch 2** is balanced.
+
+| Run | ep0 g3 | ep1 g3 | ep2 g3 | ep3 g3 |
+|---|---:|---:|---:|---:|
+| 512 CE | 0.000 | 0.000 | 0.641 | 0.000 |
+| 384 CE | 0.000 | 0.000 | 0.718 | 0.000 |
+| 768 CE | 0.000 | 0.000 | 0.692 | 0.000 |
+
+The real shape is **hedged → one balanced epoch → total collapse**, not
+"balanced then collapse".
+
+**Claim 2 — "four runs, three different losses, same inflection point."**
+False. The epoch-3 grade-2 saturation is **cross-entropy only**:
+
+| Run | loss | grade-2 recall @ ep3 |
+|---|---|---:|
+| 512 CE | CE | **1.000** |
+| 384 CE | CE | **1.000** |
+| 768 CE | CE | **1.000** |
+| 512 CORN | CORN | 0.835 |
+| 512 CORN-bal | CORN + task weights | 0.275 |
+| 512 CORN-macro | CORN + task weights | 0.550 |
+
+Three CE runs saturate exactly; no CORN run does. The phenomenon is **n = 3
+across resolutions with one loss**, not n = 6 across four losses.
+
+### What can actually be said
+
+At epoch 3 — the first full-LR epoch — all three CE runs enter a **total
+single-class state**: grade-2 recall exactly 1.000, grades 1 and 3 at 0.000–0.014,
+referable sensitivity exactly 1.000 with specificity at each run's minimum. Epoch 3
+is also the **only epoch whose training loss rises in all three** (0.705→0.728,
+0.719→0.765, 0.673→0.708).
+
+A training loss that *increases* precisely when the LR reaches full value, together
+with collapse onto one class, is consistent with an optimisation step that is too
+large. But that is now a claim about **cross-entropy at full LR**, not a
+loss-invariant property.
+
+### Consequence for the accumulation experiment
+
+The original argument was "identical across four losses ⟹ optimisation, not loss".
+**That argument is dead.** Gradient accumulation is still worth testing — the
+epoch-3 CE collapse is real, sharp and reproducible across three resolutions, and
+lower gradient noise is a plausible cause — but the experiment must be read as a
+test of *"is the CE epoch-3 collapse driven by gradient noise?"*, not as
+adjudicating loss-versus-optimisation in general.
+
+There is also a confound no accumulation run can break: **full LR and epoch 3
+arrive together**. Only a warmup-length manipulation separates them, which is why
+the warmup control runs first.
 
 
 ---
@@ -358,8 +406,10 @@ The baseline stands. What Phase 3 produced instead is five mechanisms:
    (r = +0.51) and cost 0.100 macro-recall for 0.0097 QWK (Result 3).
 4. **Macro-recall selection is clinically unsafe** — boundary-blind, it produced
    2.5× more missed referrals (Result 4).
-5. **The majority-class collapse is likely an optimisation effect** — identical
-   inflection at warmup end across six runs and four losses.
+5. **A sharp CE-specific collapse at the first full-LR epoch** — grade-2 recall
+   exactly 1.000 in all three cross-entropy runs at epoch 3, with the only
+   common training-loss increase. *Not* loss-invariant: no CORN run saturates
+   (0.835 / 0.275 / 0.550). See the corrected cross-cutting section.
 
 ### What to try next, in order
 

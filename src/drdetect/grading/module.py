@@ -112,6 +112,31 @@ class GradingModule(L.LightningModule):
                 f"Try --lr 5e-5, and confirm gradient clipping is enabled."
             )
 
+    def on_before_optimizer_step(self, optimizer):
+        """Log the PRE-clip gradient norm.
+
+        This hook fires before configure_gradient_clipping, so it sees the
+        unclipped gradient. It is the direct instrument for the epoch-3 question:
+        clipping acts on the accumulation MEAN, and the mean of 16 samples has a
+        smaller norm than a 4-sample gradient, so clip 1.0 binds far less often at
+        higher accumulation. Without this, "the clip bound less" and "the noise
+        was lower" are indistinguishable in the logs.
+        """
+        from lightning.pytorch.utilities import grad_norm
+
+        norms = grad_norm(self, norm_type=2)
+        total = norms.get("grad_2.0_norm_total")
+        if total is not None:
+            self.log("train/grad_norm", total, on_step=False, on_epoch=True)
+            clip = getattr(self.trainer, "gradient_clip_val", None)
+            if clip:
+                self.log(
+                    "train/grad_clipped_frac",
+                    float(total > clip),
+                    on_step=False,
+                    on_epoch=True,
+                )
+
     def validation_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
