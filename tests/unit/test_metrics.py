@@ -17,6 +17,8 @@ from drdetect.eval.metrics import (
     expected_calibration_error,
     quadratic_weighted_kappa,
     referable_labels,
+    sensitivity_at_specificity_floor,
+    youden_j,
 )
 
 
@@ -133,3 +135,121 @@ class TestCalibration:
         labels = np.array([1, 0] * 500)
         probs = np.full(1000, 0.99)
         assert expected_calibration_error(labels, probs) > 0.4
+
+
+class TestSensitivityAtSpecificityFloor:
+    """Regression tests for a real failure: plain sensitivity, monitored alone,
+    peaks at exactly the grade-2 collapse epoch in 3 of 4 checked training runs
+    (baseline, 768px, warmup-8 control), because predicting referable for
+    almost everyone drives sensitivity to ~1.0 at the cost of specificity.
+    """
+
+    def test_degenerate_predict_everyone_positive_is_rejected(self):
+        """The exact failure mode: sens=1.0 via zero discrimination."""
+        rng = np.random.default_rng(0)
+        y_true = rng.integers(0, 2, 300)
+        score = np.ones(300)  # predicts positive unconditionally -> sens=1, spec=0
+        result = sensitivity_at_specificity_floor(y_true, score, spec_floor=0.85)
+        assert result < 0, "a degenerate always-positive model must not score >= 0"
+
+    def test_genuine_discriminator_clears_the_floor(self):
+        rng = np.random.default_rng(1)
+        y_true = rng.integers(0, 2, 500)
+        score = np.clip(y_true * 0.6 + rng.normal(0.2, 0.15, 500), 0, 1)
+        result = sensitivity_at_specificity_floor(y_true, score, spec_floor=0.85)
+        assert result >= 0.0
+        # cross-check: applying the returned sensitivity's threshold directly
+        thr = choose_threshold_for_sensitivity(y_true, score, target_sensitivity=result - 1e-9)
+        applied = evaluate_at_threshold(y_true, score, thr)
+        assert applied.specificity >= 0.85 - 1e-6
+
+    def test_failing_every_threshold_still_orders_by_closeness(self):
+        """When nothing clears the floor, a closer miss must still rank higher.
+
+        A continuous score almost always has SOME extreme threshold reaching a
+        high specificity floor at near-zero sensitivity, so a merely-high floor
+        like 0.99 is the wrong fixture for "genuinely unreachable" -- it is
+        usually reachable. floor=1.0 with a negative tied at the maximum
+        observed score is genuinely unreachable instead: since candidate
+        thresholds never exceed 1.0, that negative can never be excluded, so
+        specificity can never reach exactly 1.0, regardless of separation
+        elsewhere.
+        """
+        positives = np.ones(10)
+        # 9 of 10 negatives are easily excluded; one is tied at the max and
+        # can never be excluded by any threshold <= 1.0.
+        less_bad_negatives = np.array([0.0] * 9 + [1.0])
+        # none of the 10 negatives can ever be excluded.
+        worse_negatives = np.ones(10)
+
+        y_true = np.array([1] * 10 + [0] * 10)
+        less_bad = sensitivity_at_specificity_floor(
+            y_true, np.concatenate([positives, less_bad_negatives]), spec_floor=1.0
+        )
+        worse = sensitivity_at_specificity_floor(
+            y_true, np.concatenate([positives, worse_negatives]), spec_floor=1.0
+        )
+        assert less_bad < 0 and worse < 0, "floor of 1.0 must be unreachable in both constructions"
+        assert less_bad > worse, "9-of-10 excludable must rank above 0-of-10 excludable"
+
+    def test_reproduces_the_measured_collapse_epoch_rejection(self):
+        """Concretely: replay the shape of the baseline's epoch-3 collapse
+        (sens=1.000, spec=0.800) against a healthier later epoch, and confirm
+        the constrained metric prefers the healthier one while plain
+        sensitivity would have preferred the collapse."""
+        rng = np.random.default_rng(3)
+        y_true = np.array([0] * 361 + [1] * 372)
+
+        # collapse epoch: refers almost everyone -> sens ~1.0, spec ~0.80
+        collapse_score = np.concatenate([rng.uniform(0.4, 0.9, 361), rng.uniform(0.5, 1.0, 372)])
+        # healthy epoch: genuine separation, sens ~0.90, spec ~0.90
+        healthy_score = np.concatenate(
+            [rng.normal(0.3, 0.15, 361), rng.normal(0.75, 0.15, 372)]
+        ).clip(0, 1)
+
+        plain_collapse = binary_scores(y_true, (collapse_score >= 0.5).astype(int))
+        plain_healthy = binary_scores(y_true, (healthy_score >= 0.5).astype(int))
+        assert plain_collapse.sensitivity > plain_healthy.sensitivity, (
+            "fixture must reproduce the actual failure: plain sensitivity prefers collapse"
+        )
+
+        constrained_collapse = sensitivity_at_specificity_floor(
+            y_true, collapse_score, spec_floor=0.85
+        )
+        constrained_healthy = sensitivity_at_specificity_floor(
+            y_true, healthy_score, spec_floor=0.85
+        )
+        assert constrained_healthy > constrained_collapse, (
+            "the constrained metric must prefer the healthy epoch where plain sensitivity did not"
+        )
+
+    def test_monotone_in_spec_floor(self):
+        """A stricter floor can only lower (or hold) the achievable sensitivity."""
+        rng = np.random.default_rng(4)
+        y_true = rng.integers(0, 2, 500)
+        score = np.clip(y_true * 0.5 + rng.normal(0.25, 0.2, 500), 0, 1)
+        loose = sensitivity_at_specificity_floor(y_true, score, spec_floor=0.70)
+        strict = sensitivity_at_specificity_floor(y_true, score, spec_floor=0.95)
+        assert loose >= strict
+
+
+class TestYoudenJ:
+    def test_perfect_classifier_scores_one(self):
+        y_true = [0, 0, 0, 1, 1, 1]
+        score = [0.1, 0.1, 0.1, 0.9, 0.9, 0.9]
+        assert youden_j(y_true, score) == pytest.approx(1.0)
+
+    def test_coin_flip_scores_zero(self):
+        y_true = [0, 1] * 100
+        score = [0.5] * 200  # everything on one side of the 0.5 threshold
+        assert youden_j(y_true, score, threshold=0.5) <= 0.0 + 1e-9
+
+    def test_degenerate_always_positive_scores_zero_not_one(self):
+        """The property that motivates using the floor-constrained metric
+        instead: J correctly refuses to reward a trivial always-positive
+        classifier with a high score, but it also does not FAVOUR a genuine
+        discriminator over it by much if the base rate is high -- it is
+        symmetric, not targeted at this project's specificity requirement."""
+        y_true = np.array([1] * 90 + [0] * 10)
+        always_pos = np.ones(100)
+        assert youden_j(y_true, always_pos) == pytest.approx(0.0, abs=1e-9)

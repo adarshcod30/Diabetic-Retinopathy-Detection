@@ -83,9 +83,14 @@ def main() -> int:
     p.add_argument(
         "--monitor",
         default="val/qwk",
-        choices=["val/qwk", "val/macro_recall", "val/sensitivity_referable"],
-        help="checkpoint/early-stopping criterion. QWK tracks grade-2 recall on this "
-        "data and can select against rare classes -- see docs/07_PHASE3_RESULTS.md",
+        choices=["val/qwk", "val/macro_recall", "val/sens_at_spec85"],
+        help="checkpoint/early-stopping criterion. val/qwk tracks grade-2 recall and "
+        "can select a hedged epoch (Result 3); val/macro_recall is boundary-blind and "
+        "unsafe for referral (Result 4); val/sensitivity_referable is NOT offered here "
+        "because maximizing it alone reselects the grade-2 collapse epoch in 3 of 4 "
+        "checked runs (predicting referable for nearly everyone drives it to ~1.0). "
+        "val/sens_at_spec85 maximizes sensitivity subject to specificity >= 0.85, "
+        "this project's own stated target -- see docs/07_PHASE3_RESULTS.md Result 9.",
     )
     p.add_argument(
         "--loss",

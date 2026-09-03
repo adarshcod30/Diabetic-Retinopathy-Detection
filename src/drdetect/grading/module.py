@@ -20,6 +20,8 @@ from drdetect.eval.metrics import (
     binary_scores,
     quadratic_weighted_kappa,
     referable_labels,
+    sensitivity_at_specificity_floor,
+    youden_j,
 )
 from drdetect.grading.losses import build_loss, decode_output, naive_referable_cut
 
@@ -179,6 +181,22 @@ class GradingModule(L.LightningModule):
         scores = binary_scores(y_ref, (p_ref >= cut).astype(int))
         self.log("val/sensitivity_referable", scores.sensitivity, prog_bar=True)
         self.log("val/specificity_referable", scores.specificity)
+
+        # Sensitivity-at-a-specificity-floor, and Youden's J for comparison.
+        # Plain sensitivity is not safe to select on: checked against this
+        # project's own logs, val/sensitivity_referable peaks at the exact
+        # epoch that collapses to predicting referable for nearly everyone
+        # (grade-2 recall ~1.0, specificity ~0.80) in 3 of 4 CE runs. The
+        # floor-constrained version operationalises this project's own stated
+        # target (sens >90%, spec >85%) instead of a symmetric combination, so
+        # it cannot be satisfied by that shortcut. See
+        # drdetect.eval.metrics.sensitivity_at_specificity_floor.
+        self.log(
+            "val/sens_at_spec85",
+            sensitivity_at_specificity_floor(y_ref, p_ref, spec_floor=0.85),
+            prog_bar=True,
+        )
+        self.log("val/youden_j", youden_j(y_ref, p_ref, threshold=cut))
 
         # Per-class recall: aggregate QWK can look fine while a rare class is
         # never predicted at all.

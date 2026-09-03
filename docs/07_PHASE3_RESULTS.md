@@ -26,6 +26,7 @@ referable) with **paired** significance tests.
 > | 6 | Collapse is NOT learning-rate-locked (warmup control) | [§](#result-6--the-collapse-is-not-learning-rate-locked) |
 > | 7 | Every effect size is inside same-seed noise (no noise floor existed) | [§](#result-7--every-phase-3-effect-size-is-inside-the-same-seed-noise) |
 > | 8 | Accumulation kills the collapse; selection still picks a hedged model | [§](#result-8--accumulation-eliminates-the-sharp-collapse-but-not-at-the-checkpoint-that-gets-selected) |
+> | 9 | Plain sensitivity selection reselects the collapse epoch; fixed with a specificity-floor constraint | [§](#result-9--plain-sensitivity-selection-is-unsafe-for-the-identical-reason-as-macro-recall) |
 
 ---
 
@@ -41,8 +42,9 @@ referable) with **paired** significance tests.
 | 6 | **768 px, CE** | 0.8986 | 0.926 | 0.933 | 0.0649 | p = 0.603, **n.s.** |
 | 7 | 512 px, warmup 8 (accum 1, control) | 0.8958 | 0.903 | 0.940 | 0.0605 | p = 0.910, **n.s.** vs baseline |
 | 8 | 512 px, warmup 8 + **accum 4** | 0.8942 | 0.903 | 0.945 | **0.0565** | p = 0.860, **n.s.** vs control |
+| 9 | 512 px, **`--monitor val/sens_at_spec85`** | *pending* | | | | |
 
-**Seven experiments, seven nulls on QWK.** Nothing beat the baseline at α = 0.05. That is
+**Seven experiments, seven nulls on QWK, plus a corrected selection metric (Result 9).** Nothing beat the baseline at α = 0.05. That is
 the honest state of the ablation, and it includes the refutation of this
 project's central architectural hypothesis (Result 5).
 
@@ -585,6 +587,55 @@ orthogonal to whether the loss curve is smooth or spiky along the way.
 - The best-calibrated model of the whole phase is this one (ECE 0.0565,
   down from the baseline's 0.0646) — a secondary benefit worth carrying into
   Phase 5, even though QWK itself did not move.
+
+## Result 9 — plain sensitivity selection is unsafe, for the identical reason as macro-recall
+
+Before spending any GPU time on `--monitor val/sensitivity_referable` (the next
+item on the "what to try next" list), a zero-cost check against the eight runs
+already trained:
+
+```
+run                          max-sens epoch   collapse epoch(s)   same?
+baseline_effb0_512                  3               [3]           True
+sweep_384_ce                        2               [3]           False (off by one)
+sweep_768_ce                        3               [3]           True
+warmup8_accum1_lr1e-4               3               [3]           True
+```
+
+**Plain sensitivity, maximised alone, picks the exact grade-2 collapse epoch in
+3 of 4 checked runs.** The mechanism is immediate once stated: at the collapse
+epoch the model predicts grade ≥2 for nearly every image, so it catches every
+true referable case (sensitivity → 1.000) at the cost of specificity
+(0.798–0.811). Sensitivity alone cannot distinguish "confidently discriminates"
+from "refers everyone" — the same failure class as macro-recall (Result 4), a
+clinically-named metric that turns out to be blind to the one thing that
+actually mattered.
+
+### The fix: operationalise this project's own stated target directly
+
+Rather than a symmetric combination (Youden's J = sens + spec − 1, logged
+alongside for comparison but not used for selection), `--monitor` now offers
+`val/sens_at_spec85`: **the best sensitivity achievable subject to specificity
+≥ 0.85**, swept per epoch over the validation split. That 0.85 is not an
+arbitrary combination weight — it is this project's own target from
+[`01_PROJECT_ANALYSIS.md`](01_PROJECT_ANALYSIS.md). A degenerate always-referable
+epoch cannot satisfy it (specificity ≈ 0 there), so it structurally cannot win
+the way it did under plain sensitivity or, differently, under macro-recall.
+
+This is the same category of fix as `corn_task_pos_weights` (Result 2): a naive
+version was checked against real evidence before running it, found unsafe by
+the same mechanism as an already-documented failure, and replaced with a
+version that targets the actual requirement instead of a proxy for it.
+`val/sensitivity_referable` itself remains logged for visibility; it is simply
+no longer an offered `--monitor` choice, and the CLI help says why.
+
+### What is not yet known
+
+Whether selecting on `val/sens_at_spec85` produces a materially different
+*checkpoint* than QWK selection — and whether that checkpoint is actually
+better on the metrics that matter — is an empirical question the analysis
+above does not answer. It only establishes that the naive alternative was
+unsafe before any run was needed to show it. The run itself is below.
 
 ## Phase 3 conclusion
 

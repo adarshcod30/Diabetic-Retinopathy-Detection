@@ -26,6 +26,8 @@ __all__ = [
     "referable_labels",
     "binary_scores",
     "choose_threshold_for_sensitivity",
+    "sensitivity_at_specificity_floor",
+    "youden_j",
     "evaluate_at_threshold",
     "bootstrap_ci",
     "expected_calibration_error",
@@ -134,6 +136,71 @@ def choose_threshold_for_sensitivity(
         if scores.sensitivity >= target_sensitivity and scores.specificity > best_specificity:
             best_threshold, best_specificity = float(threshold), scores.specificity
     return best_threshold
+
+
+def sensitivity_at_specificity_floor(y_true_binary, y_score, *, spec_floor: float = 0.85) -> float:
+    """Best sensitivity achievable while keeping specificity >= spec_floor.
+
+    Why this exists
+    ----------------
+    Plain sensitivity, monitored alone with mode="max", is gameable by a
+    single degenerate trick: predict referable for everyone. Checked directly
+    against this project's own training logs, `val/sensitivity_referable`
+    peaks at the exact epoch every other analysis in Phase 3 identified as the
+    grade-2 collapse (3 of 4 CE runs checked; the fourth misses by one epoch).
+    At that epoch sensitivity hits ~1.00 because the model refers almost every
+    image, not because it discriminates well -- specificity there is ~0.80,
+    barely above chance for the majority class. See
+    docs/07_PHASE3_RESULTS.md for the measurement.
+
+    Result 4 already showed a *different* naive fix (macro-recall selection)
+    fails for the same underlying reason: a single-sided metric cannot
+    distinguish genuine improvement from a degenerate shortcut.
+
+    This function instead operationalises the project's own stated target
+    (docs/01_PROJECT_ANALYSIS.md: sensitivity >90%, specificity >85%) directly:
+    among all thresholds achieving specificity >= spec_floor on this data,
+    return the highest sensitivity. If no threshold clears the floor, return
+    `best_specificity - 1.0` -- a value guaranteed to be negative, so any
+    epoch that DOES clear the floor always outranks one that does not, and
+    epochs that all fail the floor are still ordered by how close they came.
+
+    **Selection use only.** As with every other `val/*` metric monitored
+    during training, this sweeps thresholds on the validation split purely to
+    choose which epoch's weights to keep -- the same role val/qwk already
+    plays. It is not the reported clinical operating point; that threshold is
+    chosen once, on validation, and frozen before scoring the locked test set
+    in `scripts/evaluate.py`, per the module-level docstring above.
+    """
+    y_true = np.asarray(y_true_binary, dtype=int)
+    y_score = np.asarray(y_score, dtype=float)
+
+    best_sensitivity = -1.0
+    best_specificity_overall = -1.0
+    for threshold in np.unique(np.concatenate([y_score, [0.0, 1.0]])):
+        scores = binary_scores(y_true, (y_score >= threshold).astype(int))
+        if scores.specificity > best_specificity_overall:
+            best_specificity_overall = scores.specificity
+        if scores.specificity >= spec_floor and scores.sensitivity > best_sensitivity:
+            best_sensitivity = scores.sensitivity
+
+    if best_sensitivity >= 0.0:
+        return float(best_sensitivity)
+    return float(best_specificity_overall - 1.0)
+
+
+def youden_j(y_true_binary, y_score, threshold: float = 0.5) -> float:
+    """Youden's J = sensitivity + specificity - 1, at a fixed threshold.
+
+    Logged alongside sensitivity_at_specificity_floor purely for comparison in
+    the metrics CSV -- it is the standard symmetric alternative, included so a
+    later reader can see both without re-deriving them. Not used for selection
+    here: unlike the floor-constrained metric, J does not target this
+    project's stated specificity requirement and can settle on a point that
+    satisfies neither the sensitivity nor the specificity bar.
+    """
+    scores = binary_scores(y_true_binary, (np.asarray(y_score) >= threshold).astype(int))
+    return float(scores.sensitivity + scores.specificity - 1.0)
 
 
 def evaluate_at_threshold(y_true_binary, y_score, threshold: float) -> BinaryScores:
