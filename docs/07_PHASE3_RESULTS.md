@@ -21,12 +21,11 @@ referable) with **paired** significance tests.
 | 3 | 512 px, **CORN** ordinal | 0.8951 | 0.913 | 0.940 | 0.0550 | p = 0.851, **n.s.** |
 | 4 | 512 px, **CORN + task balancing** | 0.8950 | 0.911 | 0.940 | 0.0391 | p = 0.734, **n.s.** |
 | 5 | 512 px, CORN + macro-recall selection | 0.8790 | 0.903 | 0.959 | 0.0620 | p = 0.749, **n.s.** |
-| 6 | 768 px, CE | *running* | | | | |
+| 6 | **768 px, CE** | 0.8986 | 0.926 | 0.933 | 0.0649 | p = 0.603, **n.s.** |
 
-**Three experiments, three nulls.** Nothing has yet beaten the baseline at
-α = 0.05. That is the honest state of the ablation. What the runs *have*
-produced is three mechanistic findings that are more useful than a marginal
-QWK bump would have been.
+**Five experiments, five nulls.** Nothing beat the baseline at α = 0.05. That is
+the honest state of the ablation, and it includes the refutation of this
+project's central architectural hypothesis (Result 5).
 
 ---
 
@@ -268,3 +267,110 @@ Three selection criteria, three different failure modes:
 
 No single scalar captures the objective. The honest resolution is to report all
 three and choose explicitly, which is what the ablation table now does.
+
+
+---
+
+## Result 5 — Resolution does not help, and grade-1 recall gets *worse*
+
+The full sweep, all on the same fold-0 split, all QWK-selected:
+
+| Resolution | MA size | QWK | **grade 1** | grade 2 | grade 3 | Referable sens |
+|---:|---:|---:|---:|---:|---:|---:|
+| 384 px | 0.9 px | 0.8845 | **0.622** | 0.845 | 0.282 | 0.906 |
+| 512 px | 1.2 px | 0.8930 | **0.541** | 0.855 | 0.359 | 0.919 |
+| 768 px | 1.8 px | 0.8986 | **0.419** | 0.945 | 0.282 | 0.926 |
+
+```
+768 vs 512:  QWK +0.0056  95% CI [-0.0179, +0.0287]  p = 0.603   n.s.
+             exact grade (McNemar)  43 vs 32 discordant  p = 0.248  n.s.
+             referable  (McNemar)   20 vs 21 discordant  p = 1.000  n.s.
+```
+
+### The central hypothesis is refuted
+
+[`01_PROJECT_ANALYSIS.md` §2.2](01_PROJECT_ANALYSIS.md) argued that resolution is
+"the single most important hyperparameter", because grade 1 is defined by
+microaneurysms and MAs are destroyed by downscaling. The prediction was that
+grade-1 recall would **rise** with resolution.
+
+**Grade-1 recall falls monotonically instead: 0.622 → 0.541 → 0.419.**
+
+Three independent runs, a clean monotonic trend, in the direction opposite to the
+prediction. No QWK difference in the sweep reaches significance, so the aggregate
+metric is flat; but the grade-1 trend is consistent and is the quantity the
+hypothesis was specifically about.
+
+### A coherent alternative explanation
+
+QWK, grade-2 recall and referable sensitivity all rise with resolution while
+grade 1 falls. That pattern fits a single mechanism: **more resolution gives the
+model more evidence, which makes it more confident — and under cross-entropy with
+49 % grade 0 and 27 % grade 2, more confidence means more commitment to the
+majority classes.** Grade 1, defined by the subtlest finding and holding only
+10 % of the data, absorbs the cost.
+
+This is consistent with the earlier measurement that QWK tracks grade-2 recall
+(r = +0.51, p < 0.0001, Result 3). Higher resolution appears to buy aggregate
+agreement by sharpening the majority-class decision, not by revealing
+microaneurysms.
+
+### Caveats that keep this from being conclusive
+
+- **Three points, one fold, no repeats.** The monotonic trend is suggestive, not
+  established. Each point is a single run whose per-epoch grade-1 recall varied
+  between 0.01 and 0.81.
+- **QWK selection confounds it.** All three checkpoints were chosen on QWK, which
+  Result 3 showed favours hedged models. The 768 run *reached* grade 1 = 0.66 at
+  epoch 24 and 0.65 at epoch 11; the QWK-selected checkpoint has 0.42. The sweep
+  therefore compares "the most grade-2-confident epoch of each run", which is
+  precisely where the resolution effect would be masked.
+- **1024 px was never tested.** At 2.4 px an MA is genuinely resolvable, and that
+  is where the hypothesis makes its strongest claim. It needs ~9.6 GB and is
+  Kaggle-only.
+
+**What can be stated:** across 384–768 px, with QWK-based selection, higher
+resolution does not improve grade-1 recall and monotonically reduces it. The
+§2.2 claim is **refuted in the tested range** and remains untested at ≥1024 px.
+
+---
+
+## Phase 3 conclusion
+
+Six configurations, five paired comparisons, **zero significant improvements**.
+
+| # | Configuration | QWK | vs baseline |
+|---|---|---|---|
+| 1 | Baseline 512 px CE | 0.8930 | — |
+| 2 | 384 px | 0.8845 | p = 0.490 |
+| 3 | CORN | 0.8951 | p = 0.851 |
+| 4 | CORN + task balancing | 0.8950 | p = 0.734 |
+| 5 | CORN + macro selection | 0.8790 | p = 0.749 |
+| 6 | 768 px | 0.8986 | p = 0.603 |
+
+The baseline stands. What Phase 3 produced instead is five mechanisms:
+
+1. **Sub-MA resolutions cannot test the MA hypothesis** — and above them, the
+   hypothesis fails anyway (Results 1, 5).
+2. **Unweighted CORN cannot work on skewed ordinal data** — its conditional
+   subsets inherit the skew, and task j=1 is 80 % positive (Result 2).
+3. **QWK selection discards balanced models** — it tracks grade-2 recall
+   (r = +0.51) and cost 0.100 macro-recall for 0.0097 QWK (Result 3).
+4. **Macro-recall selection is clinically unsafe** — boundary-blind, it produced
+   2.5× more missed referrals (Result 4).
+5. **The majority-class collapse is likely an optimisation effect** — identical
+   inflection at warmup end across six runs and four losses.
+
+### What to try next, in order
+
+1. **Gradient accumulation** (`--accum 8`, effective batch 32). Finding 5 is the
+   only untested mechanism, and it is the one all six runs point at. Cheap.
+2. **`--monitor val/sensitivity_referable`.** Findings 3 and 4 rule out both
+   metrics tried so far; this is the one that matches the clinical objective.
+3. **EyePACS pretraining or RETFound init.** 2,929 training images is the most
+   likely binding constraint, and nothing tested so far addresses it.
+4. **1024 px on Kaggle** — the only honest test left of the MA argument.
+
+Notably, none of these is a loss-function change. Phase 3 spent four runs on loss
+design and found nothing; the evidence points at data quantity and optimisation
+instead.

@@ -63,10 +63,15 @@ Resized to 512 px      →  MA ≈ 1.2 px  →  barely 1 pixel
 Resized to 1024 px     →  MA ≈ 2.4 px  →  marginally detectable
 ```
 
-> **This single fact drives more architectural decisions than anything else in the project.** It is why
-> the brief says "sub-pixel microaneurysm detection," why input resolution is a first-class
-> hyperparameter, and why a patch-based or hybrid classical+DL MA detector is required rather than a
-> plain whole-image CNN.
+> **This was expected to drive more architectural decisions than anything else in the project** — it is
+> why the brief says "sub-pixel microaneurysm detection," and why input resolution was made a
+> first-class hyperparameter.
+>
+> ⚠️ **This prediction was tested in Phase 3 and did not hold.** Across 384 / 512 / 768 px, grade-1
+> recall fell monotonically (0.622 → 0.541 → 0.419) rather than rising, and no QWK difference reached
+> significance. See [`07_PHASE3_RESULTS.md` Result 5](07_PHASE3_RESULTS.md). The argument remains
+> untested at ≥1024 px, where an MA first exceeds 2 px. The reasoning below is retained because it
+> motivated the experiment, not because it was borne out.
 
 ---
 

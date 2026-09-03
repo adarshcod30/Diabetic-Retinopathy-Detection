@@ -271,6 +271,27 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 > *safe* over-calls that stay inside the referral boundary, which is why referable sensitivity holds
 > up. Full analysis, confusion matrix and what Phase 3 must fix: [`docs/06_PHASE1_RESULTS.md`](docs/06_PHASE1_RESULTS.md).
 
+### Phase 3 ablation — six configurations, no significant improvement
+
+| # | Configuration | QWK | vs baseline |
+|---|---|---|---|
+| 1 | **Baseline** 512 px, cross-entropy | **0.8930** | — |
+| 2 | 384 px | 0.8845 | p = 0.490 |
+| 3 | CORN ordinal loss | 0.8951 | p = 0.851 |
+| 4 | CORN + task balancing | 0.8950 | p = 0.734 |
+| 5 | CORN + macro-recall selection | 0.8790 | p = 0.749 |
+| 6 | 768 px | 0.8986 | p = 0.603 |
+
+Paired tests (McNemar on discordant pairs, paired bootstrap for QWK) on the same 733-image
+validation split. **The baseline stands.**
+
+> **A refuted hypothesis, recorded as refuted.** §2.2 of the analysis argued resolution was the
+> dominant hyperparameter, because grade 1 is defined by microaneurysms (~1.2 px at 512). Across
+> 384/512/768 px, grade-1 recall fell *monotonically* — 0.622 → 0.541 → 0.419 — rather than rising.
+> Higher resolution appears to buy aggregate agreement by sharpening the majority-class decision,
+> not by revealing microaneurysms. Untested at ≥1024 px. Full analysis, plus four other mechanisms
+> the phase uncovered: [`docs/07_PHASE3_RESULTS.md`](docs/07_PHASE3_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -334,7 +355,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 03_TECH_STACK.md          # tooling decisions and rationale
 │   ├── 04_ROADMAP.md             # 20-week phased plan
 │   ├── 05_PROTOTYPE_SCOPE.md     # Tier-P: scaling down without breaking the science
-│   └── 06_PHASE1_RESULTS.md      # measured baseline + confusion-matrix analysis
+│   ├── 06_PHASE1_RESULTS.md      # measured baseline + confusion-matrix analysis
+│   └── 07_PHASE3_RESULTS.md      # ablation, five mechanisms, one refuted hypothesis
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
