@@ -256,6 +256,73 @@ by total collapse at 3.
 nothing. Whatever drives the epoch-3 CE collapse, the learning-rate magnitude is
 not it.
 
+### Reaching full LR causes nothing — the other half of the refutation
+
+The control's warmup ends at epoch 8, so that is where it first reaches peak LR:
+
+| epoch | LR | % of peak | grade-2 recall | |
+|---:|---:|---:|---:|---|
+| 2 | 3.33e-5 | 33 % | 0.920 | |
+| **3** | **4.44e-5** | **44 %** | **1.000** | **COLLAPSE** |
+| 7 | 8.89e-5 | 89 % | 0.960 | |
+| **8** | **1.00e-4** | **100 %** | **0.905** | full LR arrives — nothing happens |
+| 9 | 9.98e-5 | 100 % | 0.885 | |
+
+The original claim was that the collapse occurs "exactly when LR warmup ends and
+the rate reaches full value". **Both halves are false, and this one run falsifies
+both**: it fires at 44 % of peak, before warmup ends, and warmup ending produces
+no collapse at all. Epoch 8 was in fact the best epoch to that point (QWK 0.883).
+
+The control also tracks the baseline epoch-for-epoch at less than half the LR —
+at epoch 4, grade-1/2/3 recall was 0.797/0.645/0.026 for the baseline and
+0.838/0.650/0.026 for the control.
+
+---
+
+## Result 7 — every Phase 3 effect size is inside the same-seed noise
+
+`Trainer(deterministic=False)`, because some MPS kernels have no deterministic
+variant. Three runs at **identical config and seed 42** gave epoch-0 QWK of:
+
+```
+0.744    0.819    0.774        range 0.075, sd 0.038
+```
+
+Against the ablation's measured differences:
+
+| Comparison | Δ QWK | vs same-seed range |
+|---|---:|---|
+| 384 vs 512 | +0.0085 | within |
+| CORN vs CE | +0.0021 | within |
+| CORN-balanced vs CE | +0.0020 | within |
+| CORN-macro vs CE | −0.0140 | within |
+| 768 vs 512 | +0.0056 | within |
+
+**Every effect is 5–35× smaller than the variation between runs that differ in
+nothing.** The five paired nulls were therefore correct but under-described: they
+mean *underpowered to detect an effect this small*, not *no effect exists*.
+
+### Caveat
+
+The variance measured is at **epoch 0**, the noisiest point of training. The
+reported figures are best-QWK over ~20–30 epochs, and a maximum over many epochs
+may be considerably more stable. This is suggestive, not established — settling it
+needs repeat runs at fixed config, reporting best-QWK spread.
+
+### Consequence
+
+Two things follow regardless of how the caveat resolves:
+
+1. **Report a noise floor before reporting a delta.** Three repeats of the
+   baseline would cost ~7 h and would tell every later comparison what it must
+   exceed to mean anything. Nothing in Phase 3 had that.
+2. **Prefer categorical readouts where possible.** The accumulation test below
+   reads a signature at one of two epochs 13 apart, which no amount of this
+   variance can move. That is why it is a sound experiment where a QWK-delta
+   version would not have been.
+
+---
+
 ### What is still confounded, and the experiment that separates it
 
 Both runs use `--accum 1`, so epoch 3 is **2,928 optimiser steps** in both.
