@@ -26,7 +26,7 @@ referable) with **paired** significance tests.
 > | 6 | Collapse is NOT learning-rate-locked (warmup control) | [§](#result-6--the-collapse-is-not-learning-rate-locked) |
 > | 7 | Every effect size is inside same-seed noise (no noise floor existed) | [§](#result-7--every-phase-3-effect-size-is-inside-the-same-seed-noise) |
 > | 8 | Accumulation kills the collapse; selection still picks a hedged model | [§](#result-8--accumulation-eliminates-the-sharp-collapse-but-not-at-the-checkpoint-that-gets-selected) |
-> | 9 | Plain sensitivity selection reselects the collapse epoch; fixed with a specificity-floor constraint | [§](#result-9--plain-sensitivity-selection-is-unsafe-for-the-identical-reason-as-macro-recall) |
+> | 9 | Sensitivity-at-floor avoids the collapse but saturates; the only significant (negative) QWK result | [§](#result-9--plain-sensitivity-selection-is-unsafe-for-the-identical-reason-as-macro-recall) |
 
 ---
 
@@ -42,9 +42,15 @@ referable) with **paired** significance tests.
 | 6 | **768 px, CE** | 0.8986 | 0.926 | 0.933 | 0.0649 | p = 0.603, **n.s.** |
 | 7 | 512 px, warmup 8 (accum 1, control) | 0.8958 | 0.903 | 0.940 | 0.0605 | p = 0.910, **n.s.** vs baseline |
 | 8 | 512 px, warmup 8 + **accum 4** | 0.8942 | 0.903 | 0.945 | **0.0565** | p = 0.860, **n.s.** vs control |
-| 9 | 512 px, **`--monitor val/sens_at_spec85`** | *pending* | | | | |
+| 9 | 512 px, **`--monitor val/sens_at_spec85`** | 0.8557 | 0.913 | 0.945 | 0.0434 | p = 0.003, **SIGNIFICANT (worse)** |
 
-**Seven experiments, seven nulls on QWK, plus a corrected selection metric (Result 9).** Nothing beat the baseline at α = 0.05. That is
+**Eight experiments null on QWK, one significant — and the significant one is
+a warning, not a win.** Result 9's floor-constrained sensitivity metric was
+built to fix a real, measured flaw in plain sensitivity selection, succeeded at
+that narrow goal, and then produced the phase's only statistically significant
+QWK result: **worse than the baseline** (p = 0.003), driven by grade-3 recall
+collapsing to 0.051. The fix avoided one failure mode by introducing another
+(metric saturation → noise-driven tie-breaking). Nothing beat the baseline at α = 0.05. That is
 the honest state of the ablation, and it includes the refutation of this
 project's central architectural hypothesis (Result 5).
 
@@ -629,13 +635,82 @@ version that targets the actual requirement instead of a proxy for it.
 `val/sensitivity_referable` itself remains logged for visibility; it is simply
 no longer an offered `--monitor` choice, and the CLI help says why.
 
-### What is not yet known
+### The run: the fix avoided the trap it was built for, and then made a new one
 
-Whether selecting on `val/sens_at_spec85` produces a materially different
-*checkpoint* than QWK selection — and whether that checkpoint is actually
-better on the metrics that matter — is an empirical question the analysis
-above does not answer. It only establishes that the naive alternative was
-unsafe before any run was needed to show it. The run itself is below.
+One factor changed from the true Phase 1 baseline (`--monitor` only, everything
+else — 512 px, batch 4, lr 1e-4, warmup 3, patience 8 — identical). Full
+evaluation, bootstrap CIs, paired against baseline:
+
+```
+                    qwk      95% CI              sens    spec    ece     g3
+baseline (accum1)  0.8930  [0.868, 0.916]       0.919   0.940  0.0646  0.359
+sens_at_spec85     0.8557  [0.826, 0.884]       0.913   0.945  0.0434  0.051
+
+QWK difference (B - A)  -0.0373   95% CI [-0.0622, -0.0124]   p = 0.003
+-> SIGNIFICANT at alpha=0.05 -- the ONLY significant QWK result in Phase 3
+```
+
+**It did what it was designed to do**: the selected epoch (7) is nowhere near
+the grade-2 collapse at epoch 3, confirming the floor constraint works exactly
+as the mechanism predicts.
+
+**It is also the single worst outcome of the entire phase.** Grade-3 recall
+fell from 0.359 to **0.051** (2 of 39 cases) — an 86% relative collapse, worse
+than every naive-sensitivity or naive-macro-recall failure mode this phase
+uncovered, including the ones this metric was built specifically to avoid.
+
+### Why: the floor was too easy to clear
+
+```
+sens_at_spec85 range across the run's 16 epochs:  [0.9866, 1.0000]   span 0.0134
+QWK            range across the same 16 epochs:   [0.7871, 0.8930]   span 0.1059
+```
+
+An 8× compression. Once training clears the initial degenerate phase, *almost
+every* epoch on this task can find some threshold hitting specificity ≥ 0.85
+while sensitivity sits near the 0.99–1.00 ceiling — the referable/non-referable
+ranking is comfortably good enough, epoch after epoch, that 0.85 stopped being
+a meaningful bar. The metric was measuring "did training leave the collapse
+basin" (yes, almost immediately) rather than "which of the many
+non-collapsed epochs is best."
+
+With the signal compressed to a 0.0134 band, `ModelCheckpoint(mode="max")`
+is deciding on the 3rd–4th decimal place — effectively noise. Concretely:
+
+```
+epoch with this run's actual BEST qwk:  10   qwk=0.8930   sas=0.9899
+epoch sens_at_spec85 actually SELECTED:  7   qwk=0.8557   sas=1.0000
+```
+
+**A strictly better epoch was available in the same run and was not chosen**,
+because epoch 10 scored 0.0101 lower on an already-saturated metric than
+epoch 7's ceiling value. This is not a case of the metric picking a
+*different but defensible* tradeoff — epoch 10 dominates epoch 7 on QWK,
+sensitivity, and grade-3 recall simultaneously; there is no criterion by
+which epoch 7 is the better model.
+
+### What this changes
+
+- **0.85 was the wrong floor**, not because the floor idea is wrong, but
+  because it was set at this project's *minimum acceptable* bar rather than
+  near the *achievable ceiling* for a reasonably trained epoch on this task.
+  A floor that saturates provides no more selection power than no floor at
+  all — worse, in fact, since ties are broken by whatever noise the sweep's
+  discretisation happens to produce. A tighter floor (0.92–0.95, informed by
+  what healthy epochs actually achieve) would very likely restore
+  discrimination; untested here.
+- **This is the one result in Phase 3 large enough to matter even against the
+  same-seed noise floor from Result 7** (span 0.075). At -0.0373 it is smaller
+  than that raw span but was still detected by the paired test, which is more
+  powerful than comparing independent same-seed runs because it controls for
+  the shared validation images.
+- **The general lesson generalises past this one metric.** Any selection
+  criterion this project tries next should be checked for the same failure
+  before trusting it: does it actually vary across epochs that differ
+  substantially on QWK and per-class recall, or does it saturate? A metric
+  that cannot tell epoch 7 from epoch 10 is not a safer choice than QWK just
+  because it is harder to game in the degenerate case — it can still fail by
+  being uninformative rather than misleading.
 
 ## Phase 3 conclusion
 
@@ -651,6 +726,7 @@ Six configurations, five paired comparisons, **zero significant improvements**.
 | 6 | 768 px | 0.8986 | p = 0.603 |
 | 7 | warmup 8 control (accum 1) | 0.8958 | p = 0.910 |
 | 8 | warmup 8 + accum 4 | 0.8942 | p = 0.860 (vs control) |
+| 9 | `--monitor val/sens_at_spec85` | 0.8557 | **p = 0.003 (significant, worse)** |
 
 The baseline stands. What Phase 3 produced instead is six mechanisms:
 
@@ -674,6 +750,13 @@ The baseline stands. What Phase 3 produced instead is six mechanisms:
    any run in this phase (0.915) and lower grade-3 recall than its own
    accum-1 control (Result 8). The problem was checkpoint selection
    (mechanism 3), not training-time instability.
+7. **A safety fix can fail by being uninformative, not just by being gamed** —
+   `val/sens_at_spec85` correctly refuses the degenerate always-referable
+   epoch (mechanism 1's failure mode), but the 0.85 floor saturates within an
+   0.0134 band across epochs whose QWK spans 0.1059. `ModelCheckpoint` then
+   selects on noise: it kept an epoch 0.0373 QWK worse, on every metric that
+   matters, than one available in the same run. This is Phase 3's only
+   statistically significant QWK result, and it is negative (Result 9).
 
 ### What was tried, and what is left
 
@@ -684,19 +767,31 @@ schedule-independent, showed accumulation eliminates it, and showed that
 eliminating it changes nothing that matters, because the actual failure was
 always mechanism 3: `val/qwk` selection keeps whichever epoch is most
 grade-2-confident, whether or not that epoch was reached via a spike or a
-smooth curve. **This closes the training-dynamics branch of the investigation.**
+smooth curve. This closed the training-dynamics branch of the investigation.
+
+The next step after that — fix the selection metric directly, since mechanism
+3 was always the real target — was also run to completion (Result 9). It
+correctly avoided the degenerate collapse epoch, then failed differently: the
+0.85 floor saturates on this task, compressing 16 epochs of real QWK variation
+(span 0.106) into a 0.013 band, and the checkpoint chosen from that noise was
+significantly worse than the baseline (p = 0.003) and worse than an epoch
+available in its own run. **This closes the "fix the metric with a fixed floor"
+approach; a floor calibrated to the achievable ceiling rather than the minimum
+acceptable bar remains untested and is now the natural next attempt.**
 
 What remains, in order:
 
-1. **`--monitor val/sensitivity_referable`.** Mechanisms 3 and 4 rule out both
-   selection metrics tried so far; this is the one that matches the clinical
-   objective, and it is now the highest-priority untested lever.
+1. **`--monitor val/sens_at_spec85` with a recalibrated floor** (0.92–0.95,
+   set from what healthy epochs in existing logs actually achieve, not from
+   the project's minimum bar). Cheap to try — no code change, one flag.
 2. **EyePACS pretraining or RETFound init.** 2,929 training images is the most
-   likely binding constraint, and nothing tested so far addresses it.
+   likely binding constraint, and nothing tested so far — four loss-design
+   runs, two optimisation-dynamics runs, two selection-metric designs —
+   addresses it.
 3. **1024 px on Kaggle** — the only honest test left of the MA argument from
    Result 5, and the only resolution not yet tried.
 
-None of these is a loss-function or training-dynamics change. Four runs went
-into loss design and two into optimisation dynamics; neither found anything
-that survived evaluation. The evidence now points entirely at data quantity
-(pretraining) and at the checkpoint-selection objective itself.
+Every selection-metric attempt so far has failed by a *different* mechanism
+(QWK: tracks the wrong class; macro-recall: ignores the referral boundary;
+sens-at-floor: saturates) rather than converging toward an answer. That
+pattern is itself worth noticing before spending more runs on metric design.
