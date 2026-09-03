@@ -235,6 +235,51 @@ with collapse onto one class, is consistent with an optimisation step that is to
 large. But that is now a claim about **cross-entropy at full LR**, not a
 loss-invariant property.
 
+### Result 6 — the collapse is NOT learning-rate-locked
+
+A control run held everything at the baseline and changed only **when peak LR
+arrives**, moving warmup from 3 epochs to 8 (peak LR from cumulative step 2196 to
+5856). Batch, LR, loss, class prior, seed, epoch budget and steps/epoch are
+identical.
+
+| Run | collapse epoch | LR there | % of peak |
+|---|---:|---:|---:|
+| baseline, warmup 3 | **3** | 1.00e-4 | **100 %** |
+| control, warmup 8 | **3** | 4.44e-5 | **44 %** |
+
+The collapse did not move. Same epoch, same exact signature (grade-1 0.000,
+grade-2 **1.000**, grade-3 0.000), at less than half the learning rate. Both runs
+also share the run-up: one balanced epoch at 2 (grade-3 0.641 and 0.513) followed
+by total collapse at 3.
+
+**The "at full LR" conjunct is refuted.** More than doubling the warmup changed
+nothing. Whatever drives the epoch-3 CE collapse, the learning-rate magnitude is
+not it.
+
+### What is still confounded, and the experiment that separates it
+
+Both runs use `--accum 1`, so epoch 3 is **2,928 optimiser steps** in both.
+"Locked to optimiser steps" and "locked to epochs (data passes)" remain
+indistinguishable.
+
+Gradient accumulation separates them, and this — not the original noise argument
+— is now its justification:
+
+| Hypothesis | Prediction at `--accum 4` (183 steps/epoch) |
+|---|---|
+| **step-locked** (~2,928 steps) | collapse at **epoch 16** |
+| **epoch-locked** (data passes) | collapse stays at **epoch 3** |
+
+A 13-epoch separation, far outside run-to-run noise, from a categorical signature
+rather than a metric delta. That is a far stronger experiment than the one
+originally planned, which measured a QWK difference against ~0.075 of same-seed
+variance.
+
+Note this also means the accumulation run's earlier problem — that `--grad-clip
+1.0` pins step magnitude identically in both arms (every step clipped: 0.985 at
+accum 1, 1.000 at accum 4) — no longer matters. The readout is *where* the
+signature appears, not how large a step was taken.
+
 ### Consequence for the accumulation experiment
 
 The original argument was "identical across four losses ⟹ optimisation, not loss".
@@ -244,9 +289,10 @@ lower gradient noise is a plausible cause — but the experiment must be read as
 test of *"is the CE epoch-3 collapse driven by gradient noise?"*, not as
 adjudicating loss-versus-optimisation in general.
 
-There is also a confound no accumulation run can break: **full LR and epoch 3
-arrive together**. Only a warmup-length manipulation separates them, which is why
-the warmup control runs first.
+There was also a confound no accumulation run could break: full LR and epoch 3
+arrived together. The warmup control (Result 6) broke it, and the answer is that
+**LR magnitude is not the driver** — the collapse stayed at epoch 3 at 44 % of
+peak LR.
 
 
 ---
