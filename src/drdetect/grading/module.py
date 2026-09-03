@@ -59,6 +59,7 @@ class GradingModule(L.LightningModule):
         self._val_logits: list[torch.Tensor] = []
         self._val_targets: list[torch.Tensor] = []
         self._first_epoch_loss: float | None = None
+        self._grad_norms: list[float] = []
 
     @property
     def _epoch(self) -> int:
@@ -97,6 +98,17 @@ class GradingModule(L.LightningModule):
         one epoch instead of forty is the difference between five minutes and
         two and a half hours.
         """
+        if self._grad_norms:
+            import numpy as _np
+
+            arr = _np.asarray(self._grad_norms)
+            clip = getattr(self.trainer, "gradient_clip_val", None) or 0.0
+            self.log("train/grad_norm", float(arr.mean()))
+            self.log("train/grad_norm_median", float(_np.median(arr)))
+            if clip:
+                self.log("train/grad_clipped_frac", float((arr > clip).mean()))
+            self._grad_norms.clear()
+
         loss = self.trainer.callback_metrics.get("train/loss")
         if loss is None:
             return
@@ -113,29 +125,26 @@ class GradingModule(L.LightningModule):
             )
 
     def on_before_optimizer_step(self, optimizer):
-        """Log the PRE-clip gradient norm.
+        """Collect the PRE-clip gradient norm; logging happens at epoch end.
 
         This hook fires before configure_gradient_clipping, so it sees the
         unclipped gradient. It is the direct instrument for the epoch-3 question:
-        clipping acts on the accumulation MEAN, and the mean of 16 samples has a
-        smaller norm than a 4-sample gradient, so clip 1.0 binds far less often at
-        higher accumulation. Without this, "the clip bound less" and "the noise
-        was lower" are indistinguishable in the logs.
+        clipping acts on the accumulation MEAN, whose norm is smaller than a
+        4-sample gradient's, so clip 1.0 binds less often at higher accumulation.
+        Without it, "the clip bound less" and "the noise was lower" are
+        indistinguishable in the logs.
+
+        The values are BUFFERED rather than logged here. Logging new metric keys
+        mid-epoch makes CSVLogger flush rows, discover keys it has not seen, and
+        then fail in _rewrite_with_new_header with "dict contains fields not in
+        fieldnames" -- which killed two runs after one epoch. Emitting them from
+        on_train_epoch_end keeps every train/* key on the same cadence.
         """
         from lightning.pytorch.utilities import grad_norm
 
-        norms = grad_norm(self, norm_type=2)
-        total = norms.get("grad_2.0_norm_total")
+        total = grad_norm(self, norm_type=2).get("grad_2.0_norm_total")
         if total is not None:
-            self.log("train/grad_norm", total, on_step=False, on_epoch=True)
-            clip = getattr(self.trainer, "gradient_clip_val", None)
-            if clip:
-                self.log(
-                    "train/grad_clipped_frac",
-                    float(total > clip),
-                    on_step=False,
-                    on_epoch=True,
-                )
+            self._grad_norms.append(float(total))
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
