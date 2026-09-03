@@ -123,7 +123,21 @@ def main() -> int:
 
     accelerator = pick_accelerator()
     epochs = 2 if args.smoke else args.epochs
-    run_name = args.run_name or f"{args.backbone}_{args.size}px_bs{args.batch_size}_{args.loss}"
+    # The default name must encode every flag that changes the experiment.
+    # It previously omitted --accum, --lr and --monitor, so two different runs
+    # collided on one directory: CSVLogger deletes the existing metrics.csv,
+    # ModelCheckpoint keeps the OLD best.ckpt and writes best-v1.ckpt beside it
+    # (so evaluate.py silently scores the wrong model), and --resume picks up the
+    # other run's last.ckpt. Lightning stores no accumulate_grad_batches in the
+    # checkpoint, so nothing downstream would catch it.
+    _default_name = f"{args.backbone}_{args.size}px_bs{args.batch_size}_{args.loss}"
+    if args.accum > 1:
+        _default_name += f"_accum{args.accum}"
+    if args.lr != 1e-4:
+        _default_name += f"_lr{args.lr:g}"
+    if args.monitor != "val/qwk":
+        _default_name += "_" + args.monitor.split("/")[-1]
+    run_name = args.run_name or _default_name
     n_outputs = outputs_for_loss(args.loss)
 
     print(f"manifest    : {manifest}")
@@ -203,6 +217,17 @@ def main() -> int:
         )
 
         out_dir = Path(args.out_dir) / f"{run_name}_fold{fold}"
+        # Guard the collision directly, not just via naming. Without --resume,
+        # an existing run directory means results are about to be clobbered.
+        if out_dir.exists() and not args.resume and not args.smoke:
+            print(
+                f"\nERROR: {out_dir} already exists.\n"
+                f"Continuing would delete its metrics.csv and leave the OLD best.ckpt in place,\n"
+                f"so evaluate.py would score the wrong model. Pass --run-name to use a new name,\n"
+                f"--resume to continue that run, or delete the directory first.",
+                file=sys.stderr,
+            )
+            return 1
         trainer = L.Trainer(
             max_epochs=epochs,
             accelerator=accelerator,

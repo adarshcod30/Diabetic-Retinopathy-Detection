@@ -363,7 +363,7 @@ The baseline stands. What Phase 3 produced instead is five mechanisms:
 
 ### What to try next, in order
 
-1. **Gradient accumulation** (`--accum 8`, effective batch 32). Finding 5 is the
+1. **Gradient accumulation** (`--accum 8 --run-name ...`, effective batch 32). Finding 5 is the
    only untested mechanism, and it is the one all six runs point at. Cheap.
 2. **`--monitor val/sensitivity_referable`.** Findings 3 and 4 rule out both
    metrics tried so far; this is the one that matches the clinical objective.
