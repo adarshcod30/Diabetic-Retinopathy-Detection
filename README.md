@@ -271,7 +271,7 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 > *safe* over-calls that stay inside the referral boundary, which is why referable sensitivity holds
 > up. Full analysis, confusion matrix and what Phase 3 must fix: [`docs/06_PHASE1_RESULTS.md`](docs/06_PHASE1_RESULTS.md).
 
-### Phase 3 ablation — six configurations, no significant improvement
+### Phase 3 ablation — eight configurations, no significant improvement
 
 | # | Configuration | QWK | vs baseline |
 |---|---|---|---|
@@ -281,16 +281,23 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 | 4 | CORN + task balancing | 0.8950 | p = 0.734 |
 | 5 | CORN + macro-recall selection | 0.8790 | p = 0.749 |
 | 6 | 768 px | 0.8986 | p = 0.603 |
+| 7 | Warmup 8 (control) | 0.8958 | p = 0.910 |
+| 8 | Warmup 8 + grad. accumulation ×4 | 0.8942 | p = 0.860 vs control |
 
 Paired tests (McNemar on discordant pairs, paired bootstrap for QWK) on the same 733-image
 validation split. **The baseline stands.**
 
-> **A refuted hypothesis, recorded as refuted.** §2.2 of the analysis argued resolution was the
-> dominant hyperparameter, because grade 1 is defined by microaneurysms (~1.2 px at 512). Across
-> 384/512/768 px, grade-1 recall fell *monotonically* — 0.622 → 0.541 → 0.419 — rather than rising.
-> Higher resolution appears to buy aggregate agreement by sharpening the majority-class decision,
-> not by revealing microaneurysms. Untested at ≥1024 px. Full analysis, plus four other mechanisms
-> the phase uncovered: [`docs/07_PHASE3_RESULTS.md`](docs/07_PHASE3_RESULTS.md).
+> **Two hypotheses tested and refuted, in sequence.** §2.2 of the analysis argued resolution was
+> the dominant hyperparameter, because grade 1 is defined by microaneurysms (~1.2 px at 512).
+> Across 384/512/768 px, grade-1 recall fell *monotonically* — 0.622 → 0.541 → 0.419 — rather than
+> rising (Result 5). The follow-up hypothesis — that a sharp training-time collapse into grade 2 was
+> an optimisation artifact fixable by more warmup or gradient accumulation — was tested directly: a
+> warmup-length control showed the collapse is *not* learning-rate-locked (Result 6), and
+> accumulation ×4 eliminated the collapse entirely yet left QWK unmoved, because the real cause was
+> checkpoint selection on QWK favouring grade-2-heavy epochs regardless of how the loss curve got
+> there (Result 8). A same-seed variance check also found every effect size in this table sits
+> inside normal run-to-run noise (Result 7) — the nulls are underpowered, not necessarily true
+> nulls. Full analysis and all eight results: [`docs/07_PHASE3_RESULTS.md`](docs/07_PHASE3_RESULTS.md).
 
 ### Remaining targets
 

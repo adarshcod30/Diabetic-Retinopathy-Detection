@@ -10,6 +10,23 @@ referable) with **paired** significance tests.
 > highly significant. `scripts/compare.py` uses McNemar on discordant pairs and a
 > paired bootstrap for QWK.
 
+> **Reading order note.** This is a running lab log: findings are appended near
+> the section they extend, not strictly in numeric order. Result 6 (a `###`
+> subsection, not `##`) sits before Result 4 physically, because it was added
+> while extending the discussion Result 3 started. Use this index, not scroll
+> position, to navigate by number:
+>
+> | # | Finding | Where |
+> |---|---|---|
+> | 1 | Resolution 384 vs 512 — no difference; both sub-MA | [§](#result-1--resolution-384-vs-512-no-significant-difference) |
+> | 2 | Unweighted CORN actively hurts (80% positive conditional subset) | [§](#result-2--corn-does-not-help-and-unweighted-corn-actively-hurts) |
+> | 3 | QWK selection discards balanced checkpoints | [§](#result-3--task-balancing-works-during-training-but-is-discarded-at-selection) |
+> | 4 | Macro-recall selection is clinically unsafe (2.5× missed referrals) | [§](#result-4--macro-recall-selection-improves-class-balance-and-degrades-referral-safety) |
+> | 5 | Resolution refuted outright (grade-1 recall falls monotonically) | [§](#result-5--resolution-does-not-help-and-grade-1-recall-gets-worse) |
+> | 6 | Collapse is NOT learning-rate-locked (warmup control) | [§](#result-6--the-collapse-is-not-learning-rate-locked) |
+> | 7 | Every effect size is inside same-seed noise (no noise floor existed) | [§](#result-7--every-phase-3-effect-size-is-inside-the-same-seed-noise) |
+> | 8 | Accumulation kills the collapse; selection still picks a hedged model | [§](#result-8--accumulation-eliminates-the-sharp-collapse-but-not-at-the-checkpoint-that-gets-selected) |
+
 ---
 
 ## Ablation so far
@@ -22,8 +39,10 @@ referable) with **paired** significance tests.
 | 4 | 512 px, **CORN + task balancing** | 0.8950 | 0.911 | 0.940 | 0.0391 | p = 0.734, **n.s.** |
 | 5 | 512 px, CORN + macro-recall selection | 0.8790 | 0.903 | 0.959 | 0.0620 | p = 0.749, **n.s.** |
 | 6 | **768 px, CE** | 0.8986 | 0.926 | 0.933 | 0.0649 | p = 0.603, **n.s.** |
+| 7 | 512 px, warmup 8 (accum 1, control) | 0.8958 | 0.903 | 0.940 | 0.0605 | p = 0.910, **n.s.** vs baseline |
+| 8 | 512 px, warmup 8 + **accum 4** | 0.8942 | 0.903 | 0.945 | **0.0565** | p = 0.860, **n.s.** vs control |
 
-**Five experiments, five nulls.** Nothing beat the baseline at α = 0.05. That is
+**Seven experiments, seven nulls on QWK.** Nothing beat the baseline at α = 0.05. That is
 the honest state of the ablation, and it includes the refutation of this
 project's central architectural hypothesis (Result 5).
 
@@ -496,6 +515,77 @@ resolution does not improve grade-1 recall and monotonically reduces it. The
 
 ---
 
+## Result 8 — accumulation eliminates the sharp collapse, but not at the checkpoint that gets selected
+
+The step-vs-epoch design (Result 6's follow-up) ran `--accum 4` against the exact
+warmup-8 control, differing by that one flag. Both predictions it was built to
+test — collapse at epoch 3 (epoch-locked) or epoch 16 (step-locked) — were
+**both wrong**: across all 40 epochs, the collapse signature (grade-2 recall
+≥0.99 with grade-1 ≤0.02 and grade-3 = 0.000) **never appeared once**. Every
+accum-1 run tested (baseline, 384, 768, the warmup-8 control) hit it at epoch 3
+without exception; this is the first run that does not.
+
+```
+epoch  3 (accum4): g1=0.230 g2=0.980 g3=0.051  qwk=0.8306   -- no collapse
+epoch 16 (accum4): g1=0.568 g2=0.820 g3=0.231  qwk=0.8733   -- no collapse
+```
+
+### But the selected checkpoint tells a different story
+
+Full evaluation (`scripts/evaluate.py`, bootstrap CIs) at each run's own
+best-QWK epoch:
+
+| Run | QWK | sens | spec | ECE | g1 | g2 | g3 | g4 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| baseline (accum 1, warmup 3) | 0.8930 | 0.919 | 0.940 | 0.0646 | 0.541 | 0.855 | 0.359 | 0.458 |
+| control (accum 1, warmup 8) | 0.8958 | 0.903 | 0.940 | 0.0605 | 0.608 | 0.835 | **0.436** | 0.525 |
+| **accum 4 (warmup 8)** | 0.8942 | 0.903 | 0.945 | **0.0565** | 0.554 | **0.915** | 0.333 | 0.441 |
+
+Paired against the baseline: QWK difference **+0.0012**, 95% CI [-0.0201, +0.0223],
+**p = 0.910**. Paired against its own control (identical schedule, accum 1 vs 4):
+QWK difference **-0.0016**, **p = 0.860**. Neither McNemar test (exact grade,
+referable decision) reaches significance either.
+
+**At the selected checkpoint, accum 4 has the highest grade-2 recall of any run
+evaluated (0.915) and lower grade-3 recall than its own control (0.333 vs
+0.436).** That is the opposite of what "eliminates the collapse" would suggest
+if collapse were the thing determining final quality.
+
+### The reconciliation: two different questions
+
+"Does the sharp collapse happen?" and "is the selected checkpoint well-balanced?"
+are not the same question, and this run answers them differently:
+
+- **The transient collapse — answered by the trajectory.** Accumulation
+  smooths the per-step gradient, and the total single-epoch wipeout genuinely
+  does not occur. This is a real, reproducible difference from every accum-1 run.
+- **The selected checkpoint — answered by `val/qwk` selection.** Result 3
+  already showed QWK selection tracks grade-2 recall (r = +0.51) and will pick
+  a hedged epoch over a balanced one when the hedged epoch scores marginally
+  higher. That mechanism is untouched by accumulation: `ModelCheckpoint` still
+  greedily keeps whatever epoch maximises QWK, and here that happens to be an
+  epoch with 0.915 grade-2 recall.
+
+Removing the sharp collapse did not help, because **the harm was never really
+about the collapse epoch** — training recovers from it within a few epochs
+regardless (see the baseline's epoch 4-8 trajectory). The harm is in which
+epoch `ModelCheckpoint` keeps at the end, and that selection problem is
+orthogonal to whether the loss curve is smooth or spiky along the way.
+
+### What this changes
+
+- The accumulation experiment is **complete and answered**: it does what the
+  gradient-noise theory predicted (no more sharp collapse) without producing
+  the downstream benefit that made the collapse seem like the thing to fix.
+- **Every remaining lever in this ablation is downstream of checkpoint
+  selection, not of training dynamics.** Resolution, loss function and
+  accumulation have now all been tried; none moved QWK outside the same-seed
+  noise floor (Result 7), and the one method that visibly changed per-class
+  balance (macro-recall selection, Result 4) did so unsafely.
+- The best-calibrated model of the whole phase is this one (ECE 0.0565,
+  down from the baseline's 0.0646) — a secondary benefit worth carrying into
+  Phase 5, even though QWK itself did not move.
+
 ## Phase 3 conclusion
 
 Six configurations, five paired comparisons, **zero significant improvements**.
@@ -508,8 +598,10 @@ Six configurations, five paired comparisons, **zero significant improvements**.
 | 4 | CORN + task balancing | 0.8950 | p = 0.734 |
 | 5 | CORN + macro selection | 0.8790 | p = 0.749 |
 | 6 | 768 px | 0.8986 | p = 0.603 |
+| 7 | warmup 8 control (accum 1) | 0.8958 | p = 0.910 |
+| 8 | warmup 8 + accum 4 | 0.8942 | p = 0.860 (vs control) |
 
-The baseline stands. What Phase 3 produced instead is five mechanisms:
+The baseline stands. What Phase 3 produced instead is six mechanisms:
 
 1. **Sub-MA resolutions cannot test the MA hypothesis** — and above them, the
    hypothesis fails anyway (Results 1, 5).
@@ -519,21 +611,41 @@ The baseline stands. What Phase 3 produced instead is five mechanisms:
    (r = +0.51) and cost 0.100 macro-recall for 0.0097 QWK (Result 3).
 4. **Macro-recall selection is clinically unsafe** — boundary-blind, it produced
    2.5× more missed referrals (Result 4).
-5. **A sharp CE-specific collapse at the first full-LR epoch** — grade-2 recall
-   exactly 1.000 in all three cross-entropy runs at epoch 3, with the only
-   common training-loss increase. *Not* loss-invariant: no CORN run saturates
-   (0.835 / 0.275 / 0.550). See the corrected cross-cutting section.
+5. **A sharp CE-specific collapse, not caused by learning rate** — grade-2
+   recall exactly 1.000 in all three original cross-entropy runs at epoch 3,
+   *not* loss-invariant (no CORN run saturates: 0.835 / 0.275 / 0.550), and
+   subsequently shown by the warmup-8 control (Result 6) to persist unmoved at
+   44 % of peak LR and to *not* recur when full LR does arrive (epoch 8).
+   Cause remains open; see Result 8 for where this leaves it.
+6. **Eliminating the collapse does not fix the selected checkpoint** —
+   `--accum 4` removes the sharp wipeout entirely across 40 epochs, but its
+   QWK-selected checkpoint still ends up with the highest grade-2 recall of
+   any run in this phase (0.915) and lower grade-3 recall than its own
+   accum-1 control (Result 8). The problem was checkpoint selection
+   (mechanism 3), not training-time instability.
 
-### What to try next, in order
+### What was tried, and what is left
 
-1. **Gradient accumulation** (`--accum 8 --run-name ...`, effective batch 32). Finding 5 is the
-   only untested mechanism, and it is the one all six runs point at. Cheap.
-2. **`--monitor val/sensitivity_referable`.** Findings 3 and 4 rule out both
-   metrics tried so far; this is the one that matches the clinical objective.
-3. **EyePACS pretraining or RETFound init.** 2,929 training images is the most
+The obvious next step after Result 5 — accumulation, on the theory that lower
+gradient noise would fix the collapse and thereby the model — was run to
+completion (Results 6 and 8). It confirmed the collapse is real and
+schedule-independent, showed accumulation eliminates it, and showed that
+eliminating it changes nothing that matters, because the actual failure was
+always mechanism 3: `val/qwk` selection keeps whichever epoch is most
+grade-2-confident, whether or not that epoch was reached via a spike or a
+smooth curve. **This closes the training-dynamics branch of the investigation.**
+
+What remains, in order:
+
+1. **`--monitor val/sensitivity_referable`.** Mechanisms 3 and 4 rule out both
+   selection metrics tried so far; this is the one that matches the clinical
+   objective, and it is now the highest-priority untested lever.
+2. **EyePACS pretraining or RETFound init.** 2,929 training images is the most
    likely binding constraint, and nothing tested so far addresses it.
-4. **1024 px on Kaggle** — the only honest test left of the MA argument.
+3. **1024 px on Kaggle** — the only honest test left of the MA argument from
+   Result 5, and the only resolution not yet tried.
 
-Notably, none of these is a loss-function change. Phase 3 spent four runs on loss
-design and found nothing; the evidence points at data quantity and optimisation
-instead.
+None of these is a loss-function or training-dynamics change. Four runs went
+into loss design and two into optimisation dynamics; neither found anything
+that survived evaluation. The evidence now points entirely at data quantity
+(pretraining) and at the checkpoint-selection objective itself.
