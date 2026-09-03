@@ -211,9 +211,18 @@ def perceptual_hash_groups(
     for idx, image_id in enumerate(image_ids):
         roots[find(idx)].append(image_id)
 
+    # Name each group after its lexicographically smallest member, NOT the
+    # union-find root index. The root index depends on the order the inputs
+    # arrived in, so identical data grouped twice produced identical partitions
+    # under different names -- and StratifiedGroupKFold assigns folds by group
+    # VALUE, so the two runs got different splits. Measured: the 512 px and
+    # 768 px manifests had the same 3,523 groups but shared only 139 of 733
+    # validation images, making the two runs non-comparable.
+    #
+    # Naming by member makes the mapping a pure function of the partition.
     mapping: dict[str, str] = {}
-    for root, members in roots.items():
-        gid = f"g{root:06d}"
+    for members in roots.values():
+        gid = f"g_{min(members)}"
         for m in members:
             mapping[m] = gid
     return mapping

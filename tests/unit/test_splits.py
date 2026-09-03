@@ -298,3 +298,72 @@ class TestPercolationGuard:
         fine = bin(structural_hash(a) ^ structural_hash(b)).count("1") / 256
         assert fine >= coarse * 0.8, "256-bit must not separate distinct images less than 64-bit"
         assert bin(structural_hash(a) ^ structural_hash(a)).count("1") == 0
+
+
+class TestGroupingDeterminism:
+    """Regression: identical data must produce identical group NAMES.
+
+    perceptual_hash_groups originally named groups by union-find root index,
+    which depends on input order. preprocess.py fed it results in process-pool
+    completion order, so the same dataset preprocessed twice produced identical
+    partitions under different names. StratifiedGroupKFold assigns folds by
+    group value, so the 512 px and 768 px manifests -- same images, same labels,
+    same 3,523 groups -- yielded validation sets overlapping in only 139 of 733
+    images, silently making the two runs non-comparable.
+    """
+
+    def _hashes(self, n=60, seed=0):
+        rng = np.random.default_rng(seed)
+        ids = [f"img{i:04d}" for i in range(n)]
+        hs = []
+        for _ in range(n // 2):
+            h = int(rng.integers(0, 2**60))
+            hs += [h, h ^ 1]  # pairs that should group together
+        return ids, hs
+
+    def test_shuffled_input_gives_identical_mapping(self):
+        from drdetect.data.splits import perceptual_hash_groups
+
+        ids, hs = self._hashes()
+        a = perceptual_hash_groups(ids, hs, max_distance=6)
+
+        order = list(range(len(ids)))
+        np.random.default_rng(7).shuffle(order)
+        b = perceptual_hash_groups([ids[i] for i in order], [hs[i] for i in order], max_distance=6)
+
+        assert a == b, "group assignment changed with input order"
+
+    def test_names_are_derived_from_members(self):
+        from drdetect.data.splits import perceptual_hash_groups
+
+        # (1 << 40) - 1 sets 40 bits, so it is far from 0. A single set bit
+        # would be Hamming distance 1 and would group with everything.
+        m = perceptual_hash_groups(["b", "a", "c"], [0b0000, 0b0001, (1 << 40) - 1], max_distance=2)
+        assert m["a"] == m["b"] == "g_a", m  # named for the smallest member
+        assert m["c"] != m["a"]
+
+    def test_same_partition_survives_a_rebuild(self):
+        """The concrete failure: two manifests, same partition, different names."""
+        from drdetect.data.splits import perceptual_hash_groups
+
+        ids, hs = self._hashes(seed=3)
+        first = perceptual_hash_groups(ids, hs, max_distance=6)
+        rebuilt = perceptual_hash_groups(list(reversed(ids)), list(reversed(hs)), max_distance=6)
+        assert set(first.values()) == set(rebuilt.values())
+        assert first == rebuilt
+
+    def test_split_is_stable_across_rebuilds(self):
+        """End to end: identical folds from an independently rebuilt grouping."""
+        from drdetect.data.splits import perceptual_hash_groups, stratified_group_split
+
+        ids, hs = self._hashes(n=100, seed=5)
+        labels = [i % 5 for i in range(len(ids))]
+
+        g1 = perceptual_hash_groups(ids, hs, max_distance=6)
+        order = list(range(len(ids)))
+        np.random.default_rng(11).shuffle(order)
+        g2 = perceptual_hash_groups([ids[i] for i in order], [hs[i] for i in order], max_distance=6)
+
+        f1, _ = stratified_group_split(labels, [g1[i] for i in ids], n_splits=5, seed=42)
+        f2, _ = stratified_group_split(labels, [g2[i] for i in ids], n_splits=5, seed=42)
+        assert [sorted(f.tolist()) for f in f1] == [sorted(f.tolist()) for f in f2]

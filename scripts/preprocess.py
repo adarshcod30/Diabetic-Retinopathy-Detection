@@ -182,6 +182,12 @@ def main() -> int:
         print("Nothing processed.", file=sys.stderr)
         return 1
 
+    # Sort before grouping. Results arrive from the process pool in completion
+    # order, which is non-deterministic; feeding that order into grouping made
+    # the split depend on scheduling. Group naming is now order-independent too,
+    # but sorting keeps the manifest itself byte-stable across runs.
+    results.sort(key=lambda r: r["image_id"])
+
     # APTOS ships no patient ids -- derive grouping from near-duplicate detection.
     print(
         f"Grouping {len(results)} images by perceptual hash (distance <= {args.group_hash_distance})..."
