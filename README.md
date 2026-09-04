@@ -271,7 +271,7 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 > *safe* over-calls that stay inside the referral boundary, which is why referable sensitivity holds
 > up. Full analysis, confusion matrix and what Phase 3 must fix: [`docs/06_PHASE1_RESULTS.md`](docs/06_PHASE1_RESULTS.md).
 
-### Phase 3 ablation — nine configurations, one significant (negative) result
+### Phase 3 ablation — ten configurations, one significant (negative) result
 
 | # | Configuration | QWK | vs baseline |
 |---|---|---|---|
@@ -283,11 +283,12 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 | 6 | 768 px | 0.8986 | p = 0.603 |
 | 7 | Warmup 8 (control) | 0.8958 | p = 0.910 |
 | 8 | Warmup 8 + grad. accumulation ×4 | 0.8942 | p = 0.860 vs control |
-| 9 | `--monitor val/sens_at_spec85` | 0.8557 | **p = 0.003, significant — worse** |
+| 9 | `--monitor val/sens_at_spec85`, floor 0.85 | 0.8557 | **p = 0.003, significant — worse** |
+| 10 | `--spec-floor 0.92` (recalibrated) | 0.8802 | p = 0.272, n.s. |
 
 Paired tests (McNemar on discordant pairs, paired bootstrap for QWK) on the same 733-image
-validation split. **The baseline stands, and the only statistically significant result in the
-phase is a cautionary one.**
+validation split. **The baseline stands. One result reached significance, and the attempted fix
+for it returned to null rather than becoming a win.**
 
 > **Two hypotheses tested and refuted, plus a fix that backfired.** §2.2 of the analysis argued
 > resolution was the dominant hyperparameter, because grade 1 is defined by microaneurysms
@@ -302,8 +303,11 @@ phase is a cautionary one.**
 > differently: the floor saturates on this task (16 epochs compress into a 0.013 QWK-uncorrelated
 > band), so `ModelCheckpoint` chose an epoch significantly worse than the baseline (p = 0.003) and
 > worse than another epoch in its own run (Result 9). A same-seed variance check found every other
-> effect size in this table sits inside normal run-to-run noise (Result 7). Full analysis and all
-> nine results: [`docs/07_PHASE3_RESULTS.md`](docs/07_PHASE3_RESULTS.md).
+> effect size in this table sits inside normal run-to-run noise (Result 7). Recalibrating the floor
+> to 0.92 (Result 11) fixed exactly the saturation just described — the metric's discriminating span
+> widened roughly 5x — and QWK returned to null (p = 0.272) rather than becoming an improvement,
+> closing the selection-metric branch of this investigation. Full analysis and all ten
+> configurations: [`docs/07_PHASE3_RESULTS.md`](docs/07_PHASE3_RESULTS.md).
 
 > **5-fold cross-validation (Result 10):** every number above came from one held-out fold. Running
 > the baseline across all 5 folds gives **QWK 0.8965 ± 0.0116** (0.8967 / 0.9090 / 0.8955 / 0.8756 /

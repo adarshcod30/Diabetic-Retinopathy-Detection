@@ -28,6 +28,7 @@ referable) with **paired** significance tests.
 > | 8 | Accumulation kills the collapse; selection still picks a hedged model | [§](#result-8--accumulation-eliminates-the-sharp-collapse-but-not-at-the-checkpoint-that-gets-selected) |
 > | 9 | Sensitivity-at-floor avoids the collapse but saturates; the only significant (negative) QWK result | [§](#result-9--plain-sensitivity-selection-is-unsafe-for-the-identical-reason-as-macro-recall) |
 > | 10 | 5-fold CV: baseline is stable (0.8965 ± 0.0116) but QWK ≥ 0.90 is a ~40% background rate; grade-3 recall is consistently poor across every fold | [§](#result-10--5-fold-cross-validation-the-baseline-is-stable-and-090-is-a-coin-flip) |
+> | 11 | Recalibrated floor (0.92) fixes the saturation from Result 9 -- span widens ~5x, QWK returns to null (not significant) instead of significantly worse | [§](#result-11--recalibrating-the-floor-to-092-fixes-the-saturation-qwk-returns-to-null) |
 
 ---
 
@@ -43,17 +44,21 @@ referable) with **paired** significance tests.
 | 6 | **768 px, CE** | 0.8986 | 0.926 | 0.933 | 0.0649 | p = 0.603, **n.s.** |
 | 7 | 512 px, warmup 8 (accum 1, control) | 0.8958 | 0.903 | 0.940 | 0.0605 | p = 0.910, **n.s.** vs baseline |
 | 8 | 512 px, warmup 8 + **accum 4** | 0.8942 | 0.903 | 0.945 | **0.0565** | p = 0.860, **n.s.** vs control |
-| 9 | 512 px, **`--monitor val/sens_at_spec85`** | 0.8557 | 0.913 | 0.945 | 0.0434 | p = 0.003, **SIGNIFICANT (worse)** |
+| 9 | 512 px, **`--monitor val/sens_at_spec85`** (floor 0.85) | 0.8557 | 0.913 | 0.945 | 0.0434 | p = 0.003, **SIGNIFICANT (worse)** |
+| 10 | 512 px, **`--spec-floor 0.92`** (recalibrated) | 0.8802 | 0.909 | 0.952 | 0.0553 | p = 0.272, **n.s.** |
 
-**Eight experiments null on QWK, one significant — and the significant one is
-a warning, not a win.** Result 9's floor-constrained sensitivity metric was
-built to fix a real, measured flaw in plain sensitivity selection, succeeded at
-that narrow goal, and then produced the phase's only statistically significant
-QWK result: **worse than the baseline** (p = 0.003), driven by grade-3 recall
-collapsing to 0.051. The fix avoided one failure mode by introducing another
-(metric saturation → noise-driven tie-breaking). Nothing beat the baseline at α = 0.05. That is
-the honest state of the ablation, and it includes the refutation of this
-project's central architectural hypothesis (Result 5).
+**Nine experiments null on QWK, one significant negative result, and the
+attempted fix for that negative result returned to null rather than becoming
+a win.** Result 9's floor-constrained sensitivity metric was built to fix a
+real, measured flaw in plain sensitivity selection, succeeded at that narrow
+goal, and then produced the phase's only statistically significant QWK
+result: **worse than the baseline** (p = 0.003), driven by grade-3 recall
+collapsing to 0.051 -- caused by the 0.85 floor saturating (Result 9).
+Recalibrating that floor to 0.92 (Result 11) fixed the saturation it was
+diagnosed for -- the metric's discriminating span widened roughly 5x -- and
+QWK returned to a null result (p = 0.272), not a win. Nothing has beaten the
+baseline at α = 0.05 across ten configurations, and that includes the
+refutation of this project's central architectural hypothesis (Result 5).
 
 ---
 
@@ -830,6 +835,72 @@ This matches the roadmap's own "if you have to cut scope" list
 with ImageNet init as the accepted fallback. Recorded here as investigated
 rather than silently skipped.
 
+## Result 11 — Recalibrating the floor to 0.92 fixes the saturation; QWK returns to null
+
+Result 9's own diagnosis named the fix: 0.85 was set at this project's minimum
+acceptable bar rather than near the achievable ceiling, so raise it. Added
+`--spec-floor` (it did not exist as a flag; `module.py` had 0.85 hardcoded at
+the call site) and reran the identical configuration at 0.92, chosen from the
+5-fold CV's own top-20-QWK epochs (13 of 20 clear 0.92 -- tight enough to
+matter, not so tight the floor becomes nearly unreachable).
+
+```
+                    qwk      95% CI              sens    spec    ece     g3     g4
+baseline (accum1)  0.8930  [0.868, 0.916]       0.919   0.940  0.0646  0.359  0.458
+spec_floor=0.92    0.8802  [0.854, 0.905]       0.909   0.952  0.0553  0.282  0.627
+
+QWK difference (B - A)  -0.0128   95% CI [-0.0355, +0.0098]   p = 0.272 -- NOT significant
+McNemar, exact grade      38 vs 32   p = 0.550 -- not significant
+McNemar, referable call   18 vs 16   p = 0.864 -- not significant
+```
+
+### The saturation is fixed
+
+Result 9's 0.85 floor compressed 16 epochs spanning 0.106 QWK into a 0.013
+`sens_at_spec85` band -- the metric could not tell a good epoch from a great
+one. At 0.92, the same metric spans roughly 0.06 across this run's epochs
+(0.913 at epoch 20 up to 0.973 at epochs 15 and 22, excluding the epoch-3
+anomaly discussed below) -- close to a 5x wider discriminating range. The
+mechanism Result 9 diagnosed is directly addressed: this floor is no longer
+trivially cleared by nearly every reasonable epoch.
+
+### But QWK did not improve -- it returned to the same null everything else got
+
+The selected checkpoint is epoch 15 (`sens_at_spec85` 0.9732, tied with epoch
+22 but selected first). It is not the run's best-QWK epoch: epoch 10 reached
+QWK 0.8934 at `sens_at_spec85` 0.9698, fractionally below the peak, and so
+was not selected. The gap this time (0.0132) is real but far smaller than
+Result 9's (0.0373) -- consistent with a much less compressed metric doing
+a more sensible job of picking among genuinely close epochs, rather than
+breaking ties on noise.
+
+The net effect: fixing the saturation stopped the metric from actively
+selecting a significantly-worse epoch, but it did not make sensitivity-at-a-
+floor selection better than QWK selection at this task. The result moved
+from Result 9's **significant negative** (p = 0.003) to a **null result**
+(p = 0.272) -- squarely alongside every other configuration in this table.
+
+### Per-class detail: a real trade, not a uniform loss
+
+Grade-3 recall fell again (0.359 -> 0.282), continuing the pattern that
+grade-3 is this model's weakest class regardless of selection metric. But
+grade-4 (PDR) recall rose substantially (0.458 -> 0.627), and ECE improved
+(0.0646 -> 0.0553). Neither the QWK difference nor either McNemar test
+reaches significance, so none of these per-class shifts should be read as
+proven effects -- they are the same kind of noise-scale movement Result 7
+already characterised, not a new finding.
+
+### What this closes
+
+This closes the "recalibrate the floor" branch opened by Result 9. Sensitivity-
+at-a-specificity-floor selection, at either the minimum-bar floor (0.85) or a
+ceiling-informed floor (0.92), does not beat `val/qwk` selection on this task.
+The remaining untried levers are architectural or data-scale (1024 px, a
+different backbone, more pretraining data), not further selection-metric
+tuning -- three selection-metric designs (QWK, macro-recall, two sens-at-floor
+variants) have now been tried, and none has produced a checkpoint
+significantly better than plain QWK selection.
+
 ### What was tried, and what is left
 
 The obvious next step after Result 5 — accumulation, on the theory that lower
@@ -853,10 +924,9 @@ acceptable bar remains untested and is now the natural next attempt.**
 
 What remains, in order:
 
-1. **`--monitor val/sens_at_spec85` with a recalibrated floor** (0.92–0.95,
-   set from what healthy epochs in existing logs actually achieve, not from
-   the project's minimum bar). Cheap to try — no code change, one flag. Still
-   untried.
+1. ~~`--monitor val/sens_at_spec85` with a recalibrated floor.~~ Done (Result
+   11): 0.92 fixed the saturation Result 9 diagnosed, but QWK returned to
+   null (p = 0.272), not an improvement. This branch is closed.
 2. ~~EyePACS pretraining or RETFound init.~~ Investigated (see above) and not
    runnable autonomously from this machine: no local compute path for
    EyePACS, and RETFound's only available size is a ~300M-parameter ViT
