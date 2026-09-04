@@ -179,8 +179,8 @@ significant McNemar p-value.
 
 ## Phase 6 — Rigorous explainability (Weeks 14–15) ⭐ *the differentiator*
 
-- [ ] Grad-CAM, Grad-CAM++, Score-CAM, Eigen-CAM side by side
-- [ ] **Adebayo sanity checks**: model-randomisation and data-randomisation tests. Report which methods
+- [x] Grad-CAM, Grad-CAM++, Score-CAM, Eigen-CAM side by side
+- [x] **Adebayo sanity checks**: model-randomisation and data-randomisation tests. Report which methods
       pass. *A negative result is a real result* — most DR papers never run this.
 - [ ] **Quantified localisation vs IDRiD masks**: pointing game accuracy, CAM–lesion IoU, per-lesion-type
 - [ ] Lesion-overlay rendering (outlines beat blobs for clinical legibility)
@@ -191,6 +191,16 @@ significant McNemar p-value.
 
 **Exit criterion:** a table of saliency methods × (sanity-check pass/fail, pointing-game accuracy,
 IoU). This is the most novel artefact in the project.
+
+> **Partially achieved:** see [`docs/08_PHASE6_RESULTS.md`](08_PHASE6_RESULTS.md). Eigen-CAM fails
+> the model-randomisation sanity check outright (its heatmap is provably unchanged by randomising
+> the classifier, since it never reads the classifier at all); Grad-CAM++ passes only once enough
+> of the network is randomised; plain Grad-CAM — already the Phase 2 default — passes cleanly on
+> both checks. Score-CAM's sanity-check behaviour is untested (measured ~15 min/computation on
+> CPU makes the full cascade impractical here); it was separately confirmed to run correctly after
+> a target-layer bug fix. The IoU/pointing-game and 30-second timing items remain open: IDRiD
+> landed too recently in this session for a lesion-mask loader to exist yet, and the timing study
+> needs a human reviewer this session cannot supply.
 
 ---
 
