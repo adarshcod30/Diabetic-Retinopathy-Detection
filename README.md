@@ -329,6 +329,25 @@ come, and the first to post an independently significant result on any metric at
 > backend (CUDA/T4, not this project's usual MPS) than every other row, and it is a single fold like
 > everything else in this table. Full numbers and both caveats: `docs/07_PHASE3_RESULTS.md`.
 
+### Phase 4 segmentation — hard exudates first read: test AUPRC 0.830, Dice 0.703
+
+| Split | Images | Pixel AUPRC | Dice @ 0.5 |
+|---|---|---|---|
+| Internal val | 11 | 0.8947 | — |
+| **Official test (held out)** | **27** | **0.8301** | **0.7034** |
+
+The roadmap's own plan for Phase 4 lesions is "hard exudates first — establishes the harness"
+before the other lesion types; this is that harness's first real number, trained on IDRiD's 54
+training images (43/11 internal split, no k-fold yet) and scored once, at the end, on the 27
+official test images via tiled full-resolution inference. A DeepLabV3+/resnet34 model with a
+combined BCE+Dice loss, where the BCE `pos_weight` (12.65) was measured empirically from actually
+-sampled training patches rather than derived from the ~1,400:1 whole-image imbalance ratio, which
+would have overshot badly given how much the patch sampler itself already corrects for the
+imbalance. Vessels, OD/fovea, quadrant mapping, haemorrhages, soft exudates, and microaneurysms
+remain unstarted, and this pass used a single train/val split rather than the 5-fold CV the
+roadmap specifies for this task — so 0.8301 is a first read, not yet a stable estimate. Full
+method and both caveats: [`docs/10_PHASE4_RESULTS.md`](docs/10_PHASE4_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -393,7 +412,10 @@ Diabetic-Retinopathy-Detection/
 │   ├── 04_ROADMAP.md             # 20-week phased plan
 │   ├── 05_PROTOTYPE_SCOPE.md     # Tier-P: scaling down without breaking the science
 │   ├── 06_PHASE1_RESULTS.md      # measured baseline + confusion-matrix analysis
-│   └── 07_PHASE3_RESULTS.md      # ablation, five mechanisms, one refuted hypothesis
+│   ├── 07_PHASE3_RESULTS.md      # ablation, five mechanisms, one refuted hypothesis
+│   ├── 08_PHASE6_RESULTS.md      # Grad-CAM/++/Score-CAM/Eigen-CAM sanity checks
+│   ├── 09_PHASE5_RESULTS.md      # temperature scaling, ECE before/after
+│   └── 10_PHASE4_RESULTS.md      # hard-exudate segmentation, first IDRiD baseline
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests

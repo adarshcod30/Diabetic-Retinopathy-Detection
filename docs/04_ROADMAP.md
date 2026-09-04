@@ -146,7 +146,7 @@ your target). Referable-DR sensitivity ≥ 90 % at the chosen operating point.
 - [ ] **Quadrant mapping** from OD–fovea axis (needed for ICDR's quadrant-based rules)
 - [ ] **Lesions** — DeepLabv3+/U-Net on IDRiD (only **81 masked images** → 5-fold CV, heavy aug,
       patch sampling at full resolution)
-  - [ ] Hard exudates first (easiest, highest contrast) — establishes the harness
+  - [x] Hard exudates first (easiest, highest contrast) — establishes the harness
   - [ ] Haemorrhages, soft exudates
   - [ ] **Microaneurysms last and separately**: morphological top-hat + matched filter candidate
         generation → small CNN classifier. Do *not* expect plain segmentation to work here.
@@ -157,6 +157,14 @@ a clinician would recognise.
 
 > **Scope honesty:** neovascularisation has no public pixel masks. Detect PDR at image level; document
 > NV segmentation as future work. Do not fabricate it.
+
+> **Partially achieved:** see [`docs/10_PHASE4_RESULTS.md`](10_PHASE4_RESULTS.md). Hard exudates
+> trained and scored end to end on IDRiD's official split: test-set pixel AUPRC 0.8301, Dice 0.7034
+> (tiled full-resolution inference, 27 held-out test images, metrics pooled across pixels). No
+> cross-validated CI yet — this pass used a single 43/11 train/val split rather than the 5-fold CV
+> the roadmap specifies for this task, so the number is a first read, not yet a stable estimate.
+> Vessels, OD/fovea, quadrant mapping, haemorrhages, soft exudates, and microaneurysms remain
+> entirely unstarted.
 
 ---
 
