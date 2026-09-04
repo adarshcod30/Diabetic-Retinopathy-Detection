@@ -18,18 +18,28 @@ __all__ = ["default_target_layer", "generate_cam", "overlay_cam"]
 
 
 def default_target_layer(model: nn.Module) -> nn.Module:
-    """The last convolution before global pooling, for a timm EfficientNet.
+    """The last activation before global pooling, for a timm EfficientNet.
 
-    `conv_head` is the 1x1 conv that expands the final block's channels to
-    `num_features` -- the standard Grad-CAM target for EfficientNet, since it
-    is the last layer where spatial position is still meaningful.
+    `bn2`, not `conv_head`. timm's EfficientNet fuses BatchNorm+SiLU into a
+    single `BatchNormAct2d` module at `bn2`, so `conv_head`'s own output is
+    the bare pre-activation conv -- unbounded, and roughly half-negative in
+    practice. Grad-CAM/Grad-CAM++/Eigen-CAM mostly tolerate that (their
+    weights can themselves be negative and partially cancel it out), but
+    Score-CAM's weights are a softmax over class scores -- always positive --
+    so weighting an already-negative activation map and then ReLU-ing the
+    result (`base_cam.py`'s `compute_cam_per_layer`) can zero it out
+    entirely. Measured directly: `conv_head` produced an all-zero Score-CAM
+    heatmap on a real image; `bn2`, whose output has already passed through
+    SiLU, did not. `bn2` is the correct choice for every method, not a
+    Score-CAM-specific workaround -- it's simply the last point where the
+    activation reflects what the network actually forward-propagates.
     """
     backbone = getattr(model, "backbone", model)
-    if not hasattr(backbone, "conv_head"):
+    if not hasattr(backbone, "bn2"):
         raise AttributeError(
-            f"{type(backbone).__name__} has no `conv_head`; pass target_layer explicitly."
+            f"{type(backbone).__name__} has no `bn2`; pass target_layer explicitly."
         )
-    return backbone.conv_head
+    return backbone.bn2
 
 
 def generate_cam(
