@@ -116,8 +116,16 @@ pip install kaggle
 
 # 2. Pull ONLY what fits locally
 kaggle competitions download -c aptos2019-blindness-detection -p data/raw/aptos
-# IDRiD: manual download from IEEE DataPort (registration required)
-# DRIVE: manual, grand-challenge registration
+# IDRiD: https://ieee-dataport.org/open-access/indian-diabetic-retinopathy-image-dataset-idrid
+#   free IEEE account (no membership, no fee), immediate download after login --
+#   no manual review, unlike Messidor-2's image form. ~962 MB: Segmentation
+#   (81 images, pixel masks for MA/HE/EX/SE + optic disc), Disease Grading
+#   (516 images, DR+DME severity CSVs), Localization (516 images, OD/fovea
+#   coordinate CSVs). Cite DOI 10.21227/H25W98.
+# DRIVE: https://drive.grand-challenge.org/ -- free grand-challenge.org account,
+#   register for the DRIVE challenge specifically to unlock the download link.
+#   Self-service, not manually reviewed like Messidor-2's images. 40 images
+#   (7 with early DR), one manual vessel-segmentation mask each, 565x584.
 # Messidor-2: TWO separate sources, not one -- the official database has no DR
 # grade labels at all.
 #   images: https://www.adcis.net/en/third-party/messidor2/ -- a personal-info
@@ -127,6 +135,7 @@ kaggle competitions download -c aptos2019-blindness-detection -p data/raw/aptos
 #   DR grades: kaggle datasets download -d google-brain/messidor2-dr-grades
 #     -- adjudicated by a 3-specialist panel, no separate approval needed
 #     beyond a Kaggle account, same `kaggle` CLI already used for APTOS.
+#   DONE as of 2026-09-04: data/manifests/messidor2_512.csv, 1744 images.
 
 # 3. NEVER locally:
 #    kaggle competitions download -c diabetic-retinopathy-detection   # ~90 GB
