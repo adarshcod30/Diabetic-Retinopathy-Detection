@@ -56,6 +56,10 @@ gantt
 every dataset from memory.
 
 > ⚠️ **Do first:** request Messidor-2 access. It is your locked external test set and gates Phase 8.
+> This is two separate requests, not one — the official database ships images with **no DR grade
+> labels at all**. See `docs/03_TECH_STACK.md` §5 for both: the personal-info form for images
+> (manually reviewed, no stated turnaround) and the Kaggle-hosted adjudicated grades (no approval
+> wait beyond a Kaggle account). Not yet requested as of this note.
 
 ---
 

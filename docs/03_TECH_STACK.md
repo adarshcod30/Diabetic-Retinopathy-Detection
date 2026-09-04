@@ -118,6 +118,15 @@ pip install kaggle
 kaggle competitions download -c aptos2019-blindness-detection -p data/raw/aptos
 # IDRiD: manual download from IEEE DataPort (registration required)
 # DRIVE: manual, grand-challenge registration
+# Messidor-2: TWO separate sources, not one -- the official database has no DR
+# grade labels at all.
+#   images: https://www.adcis.net/en/third-party/messidor2/ -- a personal-info
+#     form, manually reviewed, turnaround not stated. Research/educational use
+#     only; publications must acknowledge LaTIM and cite the two papers named
+#     on that page. Start this first -- it is the external-approval half.
+#   DR grades: kaggle datasets download -d google-brain/messidor2-dr-grades
+#     -- adjudicated by a 3-specialist panel, no separate approval needed
+#     beyond a Kaggle account, same `kaggle` CLI already used for APTOS.
 
 # 3. NEVER locally:
 #    kaggle competitions download -c diabetic-retinopathy-detection   # ~90 GB
