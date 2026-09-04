@@ -48,6 +48,7 @@ def main() -> int:
 
     import cv2
 
+    from drdetect.calibration.temperature import load_temperature
     from drdetect.serve.pipeline import load_grader, run_pipeline
     from drdetect.serve.report import build_report_pdf
 
@@ -59,6 +60,13 @@ def main() -> int:
 
     print(f"loading  : {checkpoint_path}")
     model = load_grader(checkpoint_path, backbone=args.backbone, loss_name=args.loss, device="cpu")
+    temperature = load_temperature(checkpoint_path)
+    calib_note = (
+        f"T={temperature:.3f}"
+        if temperature != 1.0
+        else "none fitted -- confidence is uncalibrated"
+    )
+    print(f"calibration: {calib_note}")
 
     print(f"grading  : {image_path}")
     result = run_pipeline(
@@ -68,6 +76,7 @@ def main() -> int:
         size=args.size,
         device="cpu",
         skip_quality_gate=args.force,
+        temperature=temperature,
     )
 
     if not result.quality.usable and not args.force:
@@ -79,7 +88,8 @@ def main() -> int:
         print(f"grade    : {result.grade} ({result.grade_name})")
         print(f"referable: {result.referable}")
         if result.confidence is not None:
-            print(f"confidence (uncalibrated): {result.confidence:.1%}")
+            label = "temperature-scaled" if result.calibrated else "uncalibrated"
+            print(f"confidence ({label}): {result.confidence:.2%}")
 
     out_path = Path(args.out) if args.out else Path("runs/reports") / f"{image_path.stem}.pdf"
     build_report_pdf(result, image_path.name, out_path, checkpoint_name=checkpoint_path.name)

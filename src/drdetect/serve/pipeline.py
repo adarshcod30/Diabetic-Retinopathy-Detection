@@ -5,10 +5,12 @@ explained result out. `scripts/predict.py` and the Gradio demo are both thin
 callers of `run_pipeline` so the two entry points cannot drift the way
 training and evaluation once did over `decode_output` (docs/07_PHASE3_RESULTS.md).
 
-What this is NOT: calibrated confidence. Softmax probability is reported
-as-is. Temperature scaling is Phase 5 work and has not run, so a stated
-confidence here is a raw model output, not a validated probability -- callers
-must not present it as calibrated.
+Confidence is calibrated ONLY when the caller passes a `temperature` fitted
+by `scripts/calibrate.py` (see `drdetect.calibration.temperature`) -- the
+default, 1.0, is a no-op divisor that reports raw softmax output. Check
+`PredictionResult.calibrated` before presenting a confidence number as a
+validated probability rather than a raw model output; the two look
+identical in this dataclass except for that flag.
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ class PredictionResult:
     confidence: float | None = None
     class_probs: list[float] | None = None
     cam_overlay: np.ndarray | None = None
+    calibrated: bool = False
 
 
 def load_grader(
@@ -74,6 +77,7 @@ def run_pipeline(
     size: int = 512,
     device: str = "cpu",
     skip_quality_gate: bool = False,
+    temperature: float = 1.0,
 ) -> PredictionResult:
     """Run the full quality -> grade -> explain chain on one raw image.
 
@@ -83,6 +87,12 @@ def run_pipeline(
         skip_quality_gate: force grading through even on a rejected image.
             Used by the demo so a user can see *why* an image was flagged
             instead of only being refused a result.
+        temperature: from `drdetect.calibration.temperature.load_temperature`
+            for this checkpoint, or the default 1.0 (a no-op divisor) if it
+            has never been calibrated. Dividing logits by T before softmax
+            changes reported confidence, never the predicted grade (argmax
+            is invariant to a positive rescaling) -- see
+            scripts/calibrate.py for what temperature scaling is and why.
     """
     quality = assess_quality(raw_image_rgb)
     if not quality.usable and not skip_quality_gate:
@@ -99,7 +109,7 @@ def run_pipeline(
     class_probs = None
     confidence = None
     if loss_name in ("ce", "distance_ce"):
-        probs = torch.softmax(output, dim=1)[0].detach().cpu().tolist()
+        probs = torch.softmax(output / temperature, dim=1)[0].detach().cpu().tolist()
         class_probs = probs
         confidence = float(probs[grade])
 
@@ -115,4 +125,5 @@ def run_pipeline(
         confidence=confidence,
         class_probs=class_probs,
         cam_overlay=overlay,
+        calibrated=temperature != 1.0,
     )

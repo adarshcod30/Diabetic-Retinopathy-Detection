@@ -116,20 +116,21 @@ def build_report_pdf(
         )
         y -= 20
 
+        calib_label = "temperature-scaled" if result.calibrated else "uncalibrated"
         c.setFont("Helvetica", 10)
         if result.confidence is not None:
-            c.drawString(margin, y, f"Model confidence (uncalibrated): {result.confidence:.1%}")
+            c.drawString(margin, y, f"Model confidence ({calib_label}): {result.confidence:.2%}")
             y -= 16
 
         if result.class_probs:
             c.setFont("Helvetica-Bold", 10)
-            c.drawString(margin, y, "Per-grade probability (uncalibrated):")
+            c.drawString(margin, y, f"Per-grade probability ({calib_label}):")
             y -= 14
             c.setFont("Helvetica", 9)
             from drdetect.grading.module import CLASS_NAMES
 
             for name, p in zip(CLASS_NAMES, result.class_probs, strict=True):
-                c.drawString(margin + 8, y, f"{name:<10} {p:.1%}")
+                c.drawString(margin + 8, y, f"{name:<10} {p:.2%}")
                 y -= 12
             y -= 6
 

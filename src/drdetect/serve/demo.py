@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
+from drdetect.calibration.temperature import load_temperature
 from drdetect.serve.pipeline import PredictionResult, load_grader, run_pipeline
 
 __all__ = ["build_interface"]
@@ -27,16 +28,17 @@ def _format_summary(result: PredictionResult) -> str:
         lines.extend(f"- {r}" for r in q.reasons)
         return "\n".join(lines)
 
+    calib_label = "temperature-scaled" if result.calibrated else "uncalibrated"
     lines.append(f"\n### Grade {result.grade}: {result.grade_name}")
     lines.append(f"**Referable (grade >= 2):** {'YES' if result.referable else 'no'}")
     if result.confidence is not None:
-        lines.append(f"**Confidence (uncalibrated):** {result.confidence:.1%}")
+        lines.append(f"**Confidence ({calib_label}):** {result.confidence:.2%}")
     if result.class_probs:
         from drdetect.grading.module import CLASS_NAMES
 
         lines.append("\n| Grade | Probability |\n|---|---|")
         for name, p in zip(CLASS_NAMES, result.class_probs, strict=True):
-            lines.append(f"| {name} | {p:.1%} |")
+            lines.append(f"| {name} | {p:.2%} |")
     lines.append(
         "\n*Research prototype only. Not a medical device. "
         "Every case must be reviewed by a qualified clinician.*"
@@ -60,21 +62,33 @@ def build_interface(
         else ("cuda" if torch.cuda.is_available() else "cpu")
     )
     model = load_grader(checkpoint, backbone=backbone, loss_name=loss_name, device=device)
+    temperature = load_temperature(checkpoint)
 
     def infer(image: np.ndarray, force: bool):
         if image is None:
             return None, "Upload a fundus photo to begin."
         result = run_pipeline(
-            image, model, loss_name=loss_name, size=size, device=device, skip_quality_gate=force
+            image,
+            model,
+            loss_name=loss_name,
+            size=size,
+            device=device,
+            skip_quality_gate=force,
+            temperature=temperature,
         )
         overlay = result.cam_overlay if result.cam_overlay is not None else image
         return overlay, _format_summary(result)
 
+    calib_note = (
+        f"Confidence is temperature-scaled (T={temperature:.3f})."
+        if temperature != 1.0
+        else "This checkpoint has not been calibrated -- confidence is raw softmax output."
+    )
     with gr.Blocks(title="DR Screening Demo") as demo:
         gr.Markdown(
             "# Diabetic Retinopathy Screening -- Local Demo\n"
-            "Upload a fundus photo. This is a research prototype: outputs are not "
-            "calibrated and this is not a diagnosis."
+            "Upload a fundus photo. This is a research prototype, not a diagnosis. "
+            f"{calib_note}"
         )
         with gr.Row():
             with gr.Column():

@@ -166,14 +166,24 @@ a clinician would recognise.
 
 - [ ] Lesion feature extractor: MA count, HE/EX/SE area, per-quadrant distribution, distance-to-fovea
 - [ ] Fusion head: `concat(CNN embedding, lesion features)` → ordinal head
-- [ ] Quality gating: route Reject → recapture, Usable → flag in report
-- [ ] **Temperature scaling** on a held-out split; reliability diagram + ECE before/after
+- [x] Quality gating: route Reject → recapture, Usable → flag in report *(Phase 2)*
+- [x] **Temperature scaling** on a held-out split; reliability diagram + ECE before/after
 - [ ] Uncertainty: MC-dropout or deep ensemble
 - [ ] **Operating point selection on validation only**, then frozen
 - [ ] Human-escalation policy: route bottom-*k* % confidence to a grader; measure the AI+human system
 
 **Exit criterion:** ECE < 0.05 after calibration; the fusion model beats the grading-only model with a
 significant McNemar p-value.
+
+> **Partially achieved:** see [`docs/09_PHASE5_RESULTS.md`](09_PHASE5_RESULTS.md). Temperature
+> scaling is fit, wired into `scripts/predict.py`/the demo/the PDF report (a `temperature.json`
+> sidecar per checkpoint, not silently applied to checkpoints never calibrated), and validated with
+> a reliability diagram. The baseline checkpoint does NOT clear ECE < 0.05 after calibration on
+> either metric tested (0.1347 top-1, 0.0567 referable) -- a non-monotonic miscalibration curve a
+> single scalar cannot fully fix. The Result-12 1024px checkpoint does clear it on both (0.0462,
+> 0.0414), and was already better-calibrated before scaling. The fusion head, lesion features, and
+> uncertainty estimation remain open -- they depend on Phase 4 segmentation, which has raw data but
+> no model yet.
 
 ---
 
