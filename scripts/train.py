@@ -93,6 +93,17 @@ def main() -> int:
         "this project's own stated target -- see docs/07_PHASE3_RESULTS.md Result 9.",
     )
     p.add_argument(
+        "--spec-floor",
+        type=float,
+        default=0.85,
+        help="specificity floor used by the val/sens_at_spec85 metric (logged every "
+        "run regardless of --monitor). Default 0.85 is known to saturate on this "
+        "task -- it compressed 16 epochs spanning 0.106 QWK into a 0.013 band, and "
+        "ModelCheckpoint then selected on noise (docs/07_PHASE3_RESULTS.md, Result 9). "
+        "The metric's logged key name does not change with this flag; the floor "
+        "actually used for a given run is recorded in that run's summary.json config.",
+    )
+    p.add_argument(
         "--loss",
         default="ce",
         choices=["ce", "corn", "regression", "distance_ce"],
@@ -174,6 +185,8 @@ def main() -> int:
         _default_name += f"_lr{args.lr:g}"
     if args.monitor != "val/qwk":
         _default_name += "_" + args.monitor.split("/")[-1]
+    if args.spec_floor != 0.85:
+        _default_name += f"_specfloor{args.spec_floor:g}"
     run_name = args.run_name or _default_name
     n_outputs = outputs_for_loss(args.loss)
 
@@ -269,6 +282,7 @@ def main() -> int:
             task_pos_weights=task_pos_weights,
             warmup_epochs=args.warmup_epochs,
             max_epochs=epochs,
+            spec_floor=args.spec_floor,
         )
 
         out_dir = Path(args.out_dir) / f"{run_name}_fold{fold}"

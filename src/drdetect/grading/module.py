@@ -43,6 +43,7 @@ class GradingModule(L.LightningModule):
         task_pos_weights: list[float] | None = None,
         warmup_epochs: int = 3,
         max_epochs: int = 40,
+        spec_floor: float = 0.85,
     ):
         super().__init__()
         # `model` is a live module; saving it into the checkpoint hyperparameters
@@ -191,9 +192,18 @@ class GradingModule(L.LightningModule):
         # target (sens >90%, spec >85%) instead of a symmetric combination, so
         # it cannot be satisfied by that shortcut. See
         # drdetect.eval.metrics.sensitivity_at_specificity_floor.
+        #
+        # The floor is configurable (train.py --spec-floor) because 0.85
+        # saturates on this task: it compressed 16 epochs spanning 0.106 QWK
+        # into a 0.013 band, and ModelCheckpoint then selected on noise
+        # (docs/07_PHASE3_RESULTS.md, Result 9). The logged key stays
+        # "val/sens_at_spec85" regardless of the floor actually used, for
+        # continuity with --monitor's fixed choices and every existing CSV --
+        # the TRUE floor for a given run is always in that run's
+        # summary.json config, not in this key's name.
         self.log(
             "val/sens_at_spec85",
-            sensitivity_at_specificity_floor(y_ref, p_ref, spec_floor=0.85),
+            sensitivity_at_specificity_floor(y_ref, p_ref, spec_floor=self.hparams.spec_floor),
             prog_bar=True,
         )
         self.log("val/youden_j", youden_j(y_ref, p_ref, threshold=cut))
