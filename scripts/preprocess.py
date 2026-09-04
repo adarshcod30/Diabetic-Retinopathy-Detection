@@ -57,6 +57,49 @@ def load_aptos_labels(csv_path: Path) -> dict[str, int]:
         return {row["id_code"]: int(row["diagnosis"]) for row in csv.DictReader(fh)}
 
 
+def find_messidor2(root: Path) -> tuple[Path, Path]:
+    """Locate the extracted Messidor-2 images/ and the adjudicated grades CSV.
+
+    Unlike APTOS, "download Messidor-2" is two independent requests to two
+    different places (see docs/03_TECH_STACK.md Sec.5) -- the error message
+    below repeats both so a missing half is never a mystery.
+    """
+    images = root / "images"
+    csv_path = root / "messidor_data.csv"
+    if images.is_dir() and csv_path.exists():
+        return images, csv_path
+    raise FileNotFoundError(
+        f"Could not find images/ + messidor_data.csv under {root}.\n"
+        "Images: request access at https://www.adcis.net/en/third-party/messidor2/ "
+        "(personal-info form, manually reviewed), extract into data/raw/messidor2/images/\n"
+        "Grades: kaggle datasets download -d google-brain/messidor2-dr-grades "
+        "-p data/raw/messidor2, then unzip into data/raw/messidor2/"
+    )
+
+
+def load_messidor2_labels(csv_path: Path) -> dict[str, int]:
+    """Filename stem (lower-cased) -> ICDR grade, gradable images only.
+
+    Lower-cased because the archive mixes two real naming eras from Messidor's
+    acquisition history -- 1058 images as `20051020_..._PP.png` and 690 as
+    `IM004685.JPG` -- and the grades CSV spells the second group's extension
+    lower-case (`.jpg`) where the archive ships it upper-case (`.JPG`). Case is
+    the ONLY discrepancy: verified 1748/1748 of the CSV's rows resolve to a
+    real file once case is normalised. 4 of 1748 rows have
+    `adjudicated_gradable=0` and an empty grade -- excluded here rather than
+    stored as label=-1, so a locked test set can never silently include an
+    ungradable image under a placeholder label.
+    """
+    labels = {}
+    with open(csv_path, newline="") as fh:
+        for row in csv.DictReader(fh):
+            if row["adjudicated_gradable"] != "1":
+                continue
+            stem = Path(row["image_id"]).stem.lower()
+            labels[stem] = int(row["adjudicated_dr_grade"])
+    return labels
+
+
 def process_one(args: tuple[Path, Path, int, bool, bool]) -> dict | None:
     """Worker: preprocess one image and return its record fields.
 
@@ -96,7 +139,7 @@ def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--dataset", default="aptos", choices=["aptos"])
+    p.add_argument("--dataset", default="aptos", choices=["aptos", "messidor2"])
     p.add_argument("--raw-dir", default="data/raw")
     p.add_argument("--out-dir", default="data/processed")
     p.add_argument("--manifest-dir", default="data/manifests")
@@ -114,14 +157,29 @@ def main() -> int:
     workers = args.workers or max(1, (os.cpu_count() or 2) - 1)
 
     raw_root = Path(args.raw_dir) / args.dataset
-    images_dir, csv_path = find_aptos(raw_root)
-    labels = load_aptos_labels(csv_path)
+    if args.dataset == "messidor2":
+        images_dir, csv_path = find_messidor2(raw_root)
+        labels = load_messidor2_labels(csv_path)
+    else:
+        images_dir, csv_path = find_aptos(raw_root)
+        labels = load_aptos_labels(csv_path)
     print(f"Found {len(labels)} labelled images under {images_dir}")
 
     out_dir = Path(args.out_dir) / f"{args.dataset}_{args.size}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    sources = sorted(images_dir.glob("*.png")) + sorted(images_dir.glob("*.jpg"))
+    # Explicit-case globs rather than relying on a case-insensitive filesystem:
+    # Messidor-2's archive ships 690 of its 1748 images as `.JPG` (upper-case),
+    # and a case-sensitive filesystem (Linux CI, unlike default macOS/APFS)
+    # would silently glob past all of them with a lower-case-only pattern.
+    patterns = ("*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG")
+    sources = sorted({p for pat in patterns for p in images_dir.glob(pat)})
+    if args.dataset == "messidor2":
+        # Ungradable images have no label to preprocess towards -- and this is
+        # a locked test set, so they must be absent, not present as label=-1.
+        before = len(sources)
+        sources = [s for s in sources if s.stem.lower() in labels]
+        print(f"  excluding {before - len(sources)} ungradable image(s) (no adjudicated grade)")
     if args.limit:
         sources = sources[: args.limit]
     if not sources:
@@ -205,7 +263,10 @@ def main() -> int:
             path=f"{out_dir.name}/{r['image_id']}.jpg",
             sha256=r["sha256"],
             dataset=args.dataset,
-            label=labels.get(r["image_id"], -1),
+            # .lower(): Messidor-2's grades CSV and its archive disagree on the
+            # extension case for 690 of 1748 images (see load_messidor2_labels).
+            # A no-op for APTOS, whose ids are already lower-case hex.
+            label=labels.get(r["image_id"].lower(), -1),
             group_id=groups[r["image_id"]],
             phash=str(r["dhash"]),
             width=r["width"],
@@ -232,7 +293,13 @@ def main() -> int:
 
     if failures:
         print(f"\n{len(failures)} images failed: {failures[:10]}", file=sys.stderr)
-    print("\nNext: python scripts/train.py  (baseline)")
+    if args.dataset == "messidor2":
+        print(
+            "\nThis is the LOCKED EXTERNAL TEST SET (Phase 8). Do not use it for training, "
+            "threshold selection, or any tuning decision -- evaluate on it once, at the end."
+        )
+    else:
+        print("\nNext: python scripts/train.py  (baseline)")
     return 0
 
 
