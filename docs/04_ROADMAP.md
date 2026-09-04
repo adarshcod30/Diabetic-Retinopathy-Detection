@@ -88,15 +88,27 @@ down; every future change is measured against it.
 
 **Goal:** image in → graded, explained PDF out. Ugly is fine. End-to-end is the point.
 
-- [ ] Quality model v1: EfficientNet-B0 on EyeQ, 3-class (train on Kaggle)
-- [ ] Handcrafted quality features (Laplacian variance, illumination zones, FOV fit) + failure reason
-- [ ] Grad-CAM v1 on the baseline grader
-- [ ] PDF report generator: image, CAM overlay, grade, confidence, disclaimer
-- [ ] Gradio demo running locally on MPS
-- [ ] `scripts/predict.py` — single image, CPU, no GPU required
+- [ ] Quality model v1: EfficientNet-B0 on EyeQ, 3-class (train on Kaggle) -- deferred, needs a new
+      dataset download and training run; see note below
+- [x] Handcrafted quality features (Laplacian variance, illumination zones, FOV fit) + failure reason
+- [x] Grad-CAM v1 on the baseline grader
+- [x] PDF report generator: image, CAM overlay, grade, confidence, disclaimer
+- [x] Gradio demo running locally (MPS/CUDA/CPU, whichever is available)
+- [x] `scripts/predict.py` — single image, CPU, no GPU required
 
 **Exit criterion:** you can hand someone a fundus JPEG and get a PDF back. **Demo this.** It is the
 moment the project becomes real, and it de-risks everything downstream.
+
+> **Achieved**, out of Phase 3/order: this slice was built after Phase 3's grading ablations rather
+> than before them, which inverts the roadmap's own stated principle of building the vertical slice
+> first. `python scripts/predict.py --image <photo> --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt`
+> produces a real PDF -- verified end-to-end on raw APTOS training images, including a correct grade-2
+> call with Grad-CAM localised on the visible lesion clusters. The quality gate's thresholds were
+> **empirically recalibrated**, not assumed: a first pass borrowed a generic blur-detection default
+> and rejected 28 of 30 real, clinically-graded APTOS images; the shipped threshold was set from this
+> project's own measured sharpness distribution instead (see `src/drdetect/quality/assessment.py`).
+> The EyeQ-trained quality classifier remains future work -- the handcrafted gate is a heuristic
+> stand-in, not a validated replacement for it.
 
 ---
 

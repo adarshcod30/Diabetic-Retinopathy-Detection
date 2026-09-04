@@ -305,6 +305,15 @@ phase is a cautionary one.**
 > effect size in this table sits inside normal run-to-run noise (Result 7). Full analysis and all
 > nine results: [`docs/07_PHASE3_RESULTS.md`](docs/07_PHASE3_RESULTS.md).
 
+> **5-fold cross-validation (Result 10):** every number above came from one held-out fold. Running
+> the baseline across all 5 folds gives **QWK 0.8965 ± 0.0116** (0.8967 / 0.9090 / 0.8955 / 0.8756 /
+> 0.9056) — the single-fold baseline was representative, not a lucky split, which validates every
+> comparison above. It also shows QWK ≥ 0.90 is a **~40% background rate** at this sample size (2 of
+> 5 folds clear it), and that grade-3 recall is consistently poor across every fold rather than an
+> artifact of one split. EyePACS pretraining and RETFound init were investigated as the next lever
+> and found not runnable locally right now (RETFound ships only a ~300M-parameter ViT behind a gated
+> download; EyePACS needs Kaggle-scale compute) — see `docs/07_PHASE3_RESULTS.md`.
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -443,16 +452,16 @@ python scripts/preprocess.py --dataset aptos --size 512 --pipeline bengraham
 
 ## Usage
 
-Grade a single image and produce an annotated PDF report:
+Grade a single image and produce an annotated PDF report (CPU-only, no GPU required):
 
 ```bash
-python scripts/predict.py --image path/to/fundus.jpg --report out/report.pdf
+python scripts/predict.py --image path/to/fundus.jpg --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt
 ```
 
-Launch the interactive demo:
+Launch the interactive demo (uses MPS/CUDA if available):
 
 ```bash
-python -m drdetect.serve.demo
+python scripts/demo.py --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt
 ```
 
 Run a training experiment (Hydra — every ablation row is a config override):
