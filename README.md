@@ -271,7 +271,7 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 > *safe* over-calls that stay inside the referral boundary, which is why referable sensitivity holds
 > up. Full analysis, confusion matrix and what Phase 3 must fix: [`docs/06_PHASE1_RESULTS.md`](docs/06_PHASE1_RESULTS.md).
 
-### Phase 3 ablation — ten configurations, one significant (negative) result
+### Phase 3 ablation — eleven configurations, one significant (negative), one significant (positive, different metric)
 
 | # | Configuration | QWK | vs baseline |
 |---|---|---|---|
@@ -285,10 +285,12 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 | 8 | Warmup 8 + grad. accumulation ×4 | 0.8942 | p = 0.860 vs control |
 | 9 | `--monitor val/sens_at_spec85`, floor 0.85 | 0.8557 | **p = 0.003, significant — worse** |
 | 10 | `--spec-floor 0.92` (recalibrated) | 0.8802 | p = 0.272, n.s. |
+| 11 | **1024 px** (Kaggle T4) | **0.9122** | p = 0.104, n.s. on QWK — **exact-grade accuracy p = 0.0003, significant** |
 
 Paired tests (McNemar on discordant pairs, paired bootstrap for QWK) on the same 733-image
-validation split. **The baseline stands. One result reached significance, and the attempted fix
-for it returned to null rather than becoming a win.**
+validation split. **The baseline stands on QWK at α = 0.05. But 1024 px — the first resolution
+where a microaneurysm is actually large enough to resolve — is the closest any configuration has
+come, and the first to post an independently significant result on any metric at all.**
 
 > **Two hypotheses tested and refuted, plus a fix that backfired.** §2.2 of the analysis argued
 > resolution was the dominant hyperparameter, because grade 1 is defined by microaneurysms
@@ -317,6 +319,15 @@ for it returned to null rather than becoming a win.**
 > artifact of one split. EyePACS pretraining and RETFound init were investigated as the next lever
 > and found not runnable locally right now (RETFound ships only a ~300M-parameter ViT behind a gated
 > download; EyePACS needs Kaggle-scale compute) — see `docs/07_PHASE3_RESULTS.md`.
+
+> **1024 px (Result 12):** the resolution this project's own memory ceiling had ruled out locally,
+> run on Kaggle's T4 instead. Highest QWK of the whole phase (0.9122), but the paired test against
+> baseline lands at p = 0.104 — not significant by the same α = 0.05 bar every other row was judged
+> on. What *is* significant: exact ICDR grade accuracy, McNemar p = 0.0003 (60 images right that the
+> baseline missed vs. 26 the other way) — a real signal the ordinal-weighted QWK metric dilutes.
+> Two honest caveats keep this a lead rather than a closed case: it ran on a different compute
+> backend (CUDA/T4, not this project's usual MPS) than every other row, and it is a single fold like
+> everything else in this table. Full numbers and both caveats: `docs/07_PHASE3_RESULTS.md`.
 
 ### Remaining targets
 

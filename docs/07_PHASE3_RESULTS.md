@@ -29,6 +29,7 @@ referable) with **paired** significance tests.
 > | 9 | Sensitivity-at-floor avoids the collapse but saturates; the only significant (negative) QWK result | [§](#result-9--plain-sensitivity-selection-is-unsafe-for-the-identical-reason-as-macro-recall) |
 > | 10 | 5-fold CV: baseline is stable (0.8965 ± 0.0116) but QWK ≥ 0.90 is a ~40% background rate; grade-3 recall is consistently poor across every fold | [§](#result-10--5-fold-cross-validation-the-baseline-is-stable-and-090-is-a-coin-flip) |
 > | 11 | Recalibrated floor (0.92) fixes the saturation from Result 9 -- span widens ~5x, QWK returns to null (not significant) instead of significantly worse | [§](#result-11--recalibrating-the-floor-to-092-fixes-the-saturation-qwk-returns-to-null) |
+> | 12 | 1024px (Kaggle, T4): QWK +0.0192 but p=0.104, still not significant -- yet exact-grade accuracy is significantly better (p=0.0003). The closest to a win in the whole phase, on a different metric than the one every other row was judged on | [§](#result-12--1024-px-qwk-still-not-significant-but-exact-grade-accuracy-is) |
 
 ---
 
@@ -46,19 +47,30 @@ referable) with **paired** significance tests.
 | 8 | 512 px, warmup 8 + **accum 4** | 0.8942 | 0.903 | 0.945 | **0.0565** | p = 0.860, **n.s.** vs control |
 | 9 | 512 px, **`--monitor val/sens_at_spec85`** (floor 0.85) | 0.8557 | 0.913 | 0.945 | 0.0434 | p = 0.003, **SIGNIFICANT (worse)** |
 | 10 | 512 px, **`--spec-floor 0.92`** (recalibrated) | 0.8802 | 0.909 | 0.952 | 0.0553 | p = 0.272, **n.s.** |
+| 11 | **1024 px** (Kaggle T4) | 0.9122 | 0.909 | 0.961 | **0.0421** | p = 0.104, n.s. on QWK — **exact-grade accuracy p = 0.0003, SIGNIFICANT** |
 
-**Nine experiments null on QWK, one significant negative result, and the
-attempted fix for that negative result returned to null rather than becoming
-a win.** Result 9's floor-constrained sensitivity metric was built to fix a
-real, measured flaw in plain sensitivity selection, succeeded at that narrow
-goal, and then produced the phase's only statistically significant QWK
-result: **worse than the baseline** (p = 0.003), driven by grade-3 recall
-collapsing to 0.051 -- caused by the 0.85 floor saturating (Result 9).
-Recalibrating that floor to 0.92 (Result 11) fixed the saturation it was
-diagnosed for -- the metric's discriminating span widened roughly 5x -- and
-QWK returned to a null result (p = 0.272), not a win. Nothing has beaten the
-baseline at α = 0.05 across ten configurations, and that includes the
-refutation of this project's central architectural hypothesis (Result 5).
+**Ten experiments null on QWK, one significant negative result, one fix that
+returned it to null, and one configuration that came closest to a real win —
+on a metric other than the one everything else was judged on.** Result 9's
+floor-constrained sensitivity metric was built to fix a real, measured flaw
+in plain sensitivity selection, succeeded at that narrow goal, and then
+produced a QWK result **worse than the baseline** (p = 0.003), driven by
+grade-3 recall collapsing to 0.051 -- caused by the 0.85 floor saturating
+(Result 9). Recalibrating that floor to 0.92 (Result 11) fixed the
+saturation it was diagnosed for -- the metric's discriminating span widened
+roughly 5x -- and QWK returned to a null result (p = 0.272), not a win.
+1024 px (Result 12) -- the first resolution at which microaneurysms are
+actually resolvable, per the size table in Result 1 -- posted the highest
+QWK of the phase (0.9122) and clears QWK ≥ 0.90 outright, but the paired
+test against baseline lands at p = 0.104: **not significant at α = 0.05**.
+What *is* significant is a different, real measure of the same thing --
+getting the exact ICDR grade right (p = 0.0003). No configuration has beaten
+the baseline on QWK at α = 0.05 across eleven configurations, and that
+includes the refutation of this project's central architectural hypothesis
+at sub-MA resolutions (Result 5) -- but 1024 px is the first result close
+enough, and the first with an independently significant finding at all, to
+be worth a second look with a larger sample before calling the hypothesis
+closed.
 
 ---
 
@@ -901,6 +913,71 @@ tuning -- three selection-metric designs (QWK, macro-recall, two sens-at-floor
 variants) have now been tried, and none has produced a checkpoint
 significantly better than plain QWK selection.
 
+## Result 12 — 1024 px: QWK still not significant, but exact-grade accuracy is
+
+The one resolution never tried, because it needs more memory than this project's local machine
+has (docs/05_PROTOTYPE_SCOPE.md §6.2). Result 1's own size table says why it matters: 384 px and
+512 px put a microaneurysm at 0.9–1.2 px, below what a CNN can resolve at all; 1024 px is the
+first point where an MA (≈2.4 px) is actually resolvable. Trained on Kaggle (T4, after a P100
+CUDA-kernel incompatibility forced a mid-run accelerator switch — see the commit history for that
+detour), otherwise the identical baseline configuration (lr, warmup, patience, CE loss).
+
+```
+                    qwk      95% CI              sens    spec    ece
+baseline (512px)   0.8930  [0.868, 0.916]       0.919   0.940  0.0646
+1024px (Kaggle)    0.9122  [0.889, 0.935]       0.909   0.961  0.0421
+
+QWK difference (B - A)  +0.0192   95% CI [-0.0040, +0.0428]   p = 0.104 -- NOT significant
+McNemar, exact grade      60 vs 26   p = 0.0003  -- SIGNIFICANT
+McNemar, referable call   28 vs 22   p = 0.480   -- not significant
+```
+
+### The highest QWK of the phase, and still not a statistically confirmed win
+
+0.9122 clears the Phase 3 exit criterion (QWK ≥ 0.90) outright, and is the best QWK across all
+eleven configurations tried, including the 5-fold CV mean from Result 10 (0.8965 ± 0.0116). But
+the paired bootstrap test against the true baseline — the same test every other row in this table
+was judged by — puts the improvement at p = 0.104. By this project's own α = 0.05 bar, applied
+identically everywhere else in this document, **this is not a significant result.** Reporting it
+as a confirmed win because the raw number looks good would be exactly the kind of unearned claim
+this document exists to catch.
+
+### What *is* significant: getting the exact grade right
+
+McNemar's test on whether each model predicted the exact correct ICDR grade (not the ordinal-
+weighted QWK, the raw hit/miss) is unambiguous: 60 images the 1024 px model got right that the
+baseline missed, against 26 the other way, p = 0.0003. This is a real, independently-measured
+signal that the ordinal-weighted QWK metric — built to be forgiving of near-miss errors — is
+diluting. Per-class recall is consistent with a genuine, broad improvement rather than one lucky
+class: Moderate +0.095, Severe +0.077, PDR +0.169, No DR and Mild essentially flat. The referable
+binary decision (grade ≥ 2), the clinically operative one, does not reach significance (p = 0.480)
+-- the gains are concentrated in getting the *exact* severity right among already-detected cases,
+not in catching referable cases the baseline missed entirely.
+
+### Two honest caveats before this becomes the headline number
+
+1. **Two things changed at once, not one.** Every other resolution in this table (384/512/768)
+   ran on the same local MPS backend as the baseline. This run had to move to Kaggle's CUDA/T4
+   after the local-machine memory ceiling ruled it out entirely -- so "1024 px" and "different
+   compute backend" are confounded here in a way they are not for any other row. Numerical
+   differences between MPS and CUDA kernels are usually negligible for a converged model's
+   evaluation-time predictions, but "usually negligible" is an assumption, not something measured
+   in this project.
+2. **Single fold, same caveat as every other row.** Result 10 already established that a single
+   fold's QWK sits inside a 0.0116 standard deviation band across the 5-fold CV. 0.9122 is a
+   good draw from that same distribution, not proof the *underlying* model is meaningfully better
+   -- the exact-grade McNemar result is the stronger evidence here precisely because it does not
+   depend on which single fold was used to select the naive 0.5 threshold.
+
+### What this changes
+
+1024 px is no longer the untested point of the microaneurysm hypothesis -- it is the first
+resolution in this whole phase to produce an independently significant improvement on *any*
+metric, and the closest QWK has come to significance across eleven tries. That is not the same as
+confirming the hypothesis: QWK itself remains not significant, and the two caveats above mean this
+is a genuinely promising lead, not a closed case. The natural next step, if this is worth pursuing
+further, is a same-backend or multi-fold confirmation rather than treating one Kaggle run as final.
+
 ### What was tried, and what is left
 
 The obvious next step after Result 5 — accumulation, on the theory that lower
@@ -932,14 +1009,26 @@ What remains, in order:
    EyePACS, and RETFound's only available size is a ~300M-parameter ViT
    behind a gated HuggingFace request, fixed at 224 px input. ImageNet init
    (the current state) stands per the roadmap's own accepted fallback.
-3. **1024 px on Kaggle** — the only honest test left of the MA argument from
-   Result 5, and the only resolution not yet tried.
+3. ~~1024 px on Kaggle.~~ Done (Result 12): highest QWK of the phase (0.9122),
+   still not significant on QWK (p = 0.104), but the first independently
+   significant improvement on any metric in eleven tries (exact-grade
+   accuracy, p = 0.0003). Promising, not closed -- confounded with a
+   backend change (MPS -> CUDA) no other row in this table has, and drawn
+   from a single fold like every other row.
 4. **5-fold CV, not a single fold, for any future comparison** (Result 10) —
    the baseline is stable (0.8965 ± 0.0116) but QWK ≥ 0.90 is only a ~40%
    background rate at this sample size; grade-3 recall is consistently poor
    across every fold and is a real model limitation, not fold noise.
+5. **A same-backend or multi-fold confirmation of 1024 px** (Result 12) —
+   the natural next step if the exact-grade-accuracy signal is worth
+   pursuing further, now that it is the most promising lead in the phase.
 
 Every selection-metric attempt so far has failed by a *different* mechanism
 (QWK: tracks the wrong class; macro-recall: ignores the referral boundary;
 sens-at-floor: saturates) rather than converging toward an answer. That
 pattern is itself worth noticing before spending more runs on metric design.
+Resolution, on the other hand, went from refuted outright (Result 5, sub-MA
+sizes) to the phase's single most promising lead (Result 12, the first
+MA-resolvable size) — the opposite trajectory, and a reminder that a refuted
+hypothesis at the wrong operating point is not the same as a refuted
+hypothesis.
