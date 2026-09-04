@@ -27,6 +27,7 @@ referable) with **paired** significance tests.
 > | 7 | Every effect size is inside same-seed noise (no noise floor existed) | [§](#result-7--every-phase-3-effect-size-is-inside-the-same-seed-noise) |
 > | 8 | Accumulation kills the collapse; selection still picks a hedged model | [§](#result-8--accumulation-eliminates-the-sharp-collapse-but-not-at-the-checkpoint-that-gets-selected) |
 > | 9 | Sensitivity-at-floor avoids the collapse but saturates; the only significant (negative) QWK result | [§](#result-9--plain-sensitivity-selection-is-unsafe-for-the-identical-reason-as-macro-recall) |
+> | 10 | 5-fold CV: baseline is stable (0.8965 ± 0.0116) but QWK ≥ 0.90 is a ~40% background rate; grade-3 recall is consistently poor across every fold | [§](#result-10--5-fold-cross-validation-the-baseline-is-stable-and-090-is-a-coin-flip) |
 
 ---
 
@@ -758,6 +759,77 @@ The baseline stands. What Phase 3 produced instead is six mechanisms:
    matters, than one available in the same run. This is Phase 3's only
    statistically significant QWK result, and it is negative (Result 9).
 
+## Result 10 — 5-fold cross-validation: the baseline is stable, and 0.90 is a coin flip
+
+Every number in Results 1–9, including the baseline itself, came from one fold
+(`fold 0` of a `StratifiedGroupKFold(n_splits=5)`). `scripts/train.py --folds
+0,1,2,3,4` runs the identical baseline configuration (512 px, batch 4, lr
+1e-4, warmup 3, patience 8, CE) across all five folds in one process and
+reports the aggregate — this had never been invoked with more than one fold
+before.
+
+```
+fold 0   QWK 0.8967   (28 epochs)
+fold 1   QWK 0.9090   (18 epochs)
+fold 2   QWK 0.8955   (17 epochs)
+fold 3   QWK 0.8756   (27 epochs)
+fold 4   QWK 0.9056   (18 epochs)
+
+mean 0.8965   std 0.0116
+```
+
+### This is good news for Results 1–9
+
+The original single-fold baseline (0.8930) sits inside one standard deviation
+of the 5-fold mean (0.8965 ± 0.0116). The fold this project happened to run
+everything on was not a lucky or unlucky outlier — every Phase 3 comparison
+that used it as the reference point was comparing against a representative
+number, not a fluke. The re-run of fold 0 itself under this run (0.8967)
+differs from the original baseline (0.8930) by 0.0037, consistent with the
+same-seed non-determinism documented in Result 7.
+
+### But QWK ≥ 0.90 (the Phase 3 exit criterion) is not a stable property
+
+Two of five folds (1 and 4) cleared 0.90; three did not. A single held-out
+split reporting ≥ 0.90 is not evidence the model reliably clears that bar —
+it is a roughly 40% background rate at this sample size, before any deliberate
+improvement. Any future claim of "QWK ≥ 0.90" on this dataset should be a
+5-fold mean, not a single fold, or it risks re-litigating this exact question.
+
+### Cross-fold per-class recall exposes instability Results 1–9 could not see
+
+With only one fold, grade-1 and grade-3 recall each had one value; across five
+they range widely: grade-1 (Mild) recall is 0.41 / 0.76 / 0.68 / 0.35 / 0.58,
+and grade-3 (Severe) recall is 0.41 / 0.42 / 0.13 / 0.21 / 0.21. Grade-3 recall
+in particular is consistently poor and never recovers across any fold — a
+single-fold snapshot could not distinguish "this fold's grade-3 recall is
+unlucky" from "this model cannot do grade-3," and the answer is the latter.
+
+## RETFound / EyePACS pretraining — investigated, not run
+
+The natural next lever (2,929 training images is the likeliest binding
+constraint on all of Results 1–9) was investigated and is not runnable
+autonomously from this machine right now, for three independent reasons:
+
+1. **EyePACS** needs Kaggle-scale compute for the pretraining run itself; this
+   project's own tech-stack doc already rules out pulling the ~90 GB dataset
+   locally (`docs/03_TECH_STACK.md` §5).
+2. **RETFound** ships only as a ViT-Large encoder (~300M parameters) — there
+   is no smaller RETFound-branded checkpoint. Obtaining the weights requires
+   registering a HuggingFace account and completing a gated-access request, which
+   is a credentials/account action, not a training-design choice.
+3. Even with weights in hand, ~300M parameters is a ~75× jump from the current
+   4M-parameter EfficientNet-B0, on a machine that already hit OOM/system-freeze
+   conditions at a small fraction of that size (docs/05_PROTOTYPE_SCOPE.md
+   §6.2), and RETFound's fine-tuning is fixed at 224 px input, which conflicts
+   with this project's own finding that microaneurysms need higher resolution
+   to survive downscaling (Result 1, Result 5).
+
+This matches the roadmap's own "if you have to cut scope" list
+(`docs/04_ROADMAP.md`), which already names EyePACS pretraining as croppable
+with ImageNet init as the accepted fallback. Recorded here as investigated
+rather than silently skipped.
+
 ### What was tried, and what is left
 
 The obvious next step after Result 5 — accumulation, on the theory that lower
@@ -783,13 +855,19 @@ What remains, in order:
 
 1. **`--monitor val/sens_at_spec85` with a recalibrated floor** (0.92–0.95,
    set from what healthy epochs in existing logs actually achieve, not from
-   the project's minimum bar). Cheap to try — no code change, one flag.
-2. **EyePACS pretraining or RETFound init.** 2,929 training images is the most
-   likely binding constraint, and nothing tested so far — four loss-design
-   runs, two optimisation-dynamics runs, two selection-metric designs —
-   addresses it.
+   the project's minimum bar). Cheap to try — no code change, one flag. Still
+   untried.
+2. ~~EyePACS pretraining or RETFound init.~~ Investigated (see above) and not
+   runnable autonomously from this machine: no local compute path for
+   EyePACS, and RETFound's only available size is a ~300M-parameter ViT
+   behind a gated HuggingFace request, fixed at 224 px input. ImageNet init
+   (the current state) stands per the roadmap's own accepted fallback.
 3. **1024 px on Kaggle** — the only honest test left of the MA argument from
    Result 5, and the only resolution not yet tried.
+4. **5-fold CV, not a single fold, for any future comparison** (Result 10) —
+   the baseline is stable (0.8965 ± 0.0116) but QWK ≥ 0.90 is only a ~40%
+   background rate at this sample size; grade-3 recall is consistently poor
+   across every fold and is a real model limitation, not fold noise.
 
 Every selection-metric attempt so far has failed by a *different* mechanism
 (QWK: tracks the wrong class; macro-recall: ignores the referral boundary;
