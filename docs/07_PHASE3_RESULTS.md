@@ -31,6 +31,7 @@ referable) with **paired** significance tests.
 > | 11 | Recalibrated floor (0.92) fixes the saturation from Result 9 -- span widens ~5x, QWK returns to null (not significant) instead of significantly worse | [§](#result-11--recalibrating-the-floor-to-092-fixes-the-saturation-qwk-returns-to-null) |
 > | 12 | 1024px (Kaggle, T4): QWK +0.0192 but p=0.104, still not significant -- yet exact-grade accuracy is significantly better (p=0.0003). The closest to a win in the whole phase, on a different metric than the one every other row was judged on | [§](#result-12--1024-px-qwk-still-not-significant-but-exact-grade-accuracy-is) |
 > | 13 | ConvNeXt-Tiny (zero BatchNorm, LayerNorm throughout): QWK null (p=0.630), but exact-grade accuracy is significantly *worse* (p=0.019) and grade-1 recall collapses to 0.230 from 0.541. Closes the "is it BatchNorm" hypothesis this project raised about itself -- it wasn't | [§](#result-13--convnext-tiny-removes-batchnorm-entirely-and-the-collapse-happens-anyway) |
+> | 14 | Same-backend 1024px confirmation: null against baseline locally (p=0.374), but the backend itself moves QWK by 0.031 (p=0.001) and exact-grade accuracy (p=0.027) -- a bigger, now-measured effect than Result 12's resolution change ever was. Result 12's causal story no longer holds | [§](#result-14--the-same-backend-confirmation-1024-px-does-not-reproduce-locally-and-the-backend-confound-is-real-not-theoretical) |
 
 ---
 
@@ -50,6 +51,7 @@ referable) with **paired** significance tests.
 | 10 | 512 px, **`--spec-floor 0.92`** (recalibrated) | 0.8802 | 0.909 | 0.952 | 0.0553 | p = 0.272, **n.s.** |
 | 11 | **1024 px** (Kaggle T4) | 0.9122 | 0.909 | 0.961 | **0.0421** | p = 0.104, n.s. on QWK — **exact-grade accuracy p = 0.0003, SIGNIFICANT** |
 | 12 | 512 px, **ConvNeXt-Tiny** backbone (no BatchNorm) | 0.8870 | 0.903 | 0.961 | 0.0819 | p = 0.630, n.s. on QWK — **exact-grade accuracy p = 0.019, SIGNIFICANT (worse)** |
+| 13 | **1024 px, local (MPS, same backend as baseline)** | 0.8813 | 0.916 | 0.945 | 0.0576 | p = 0.374, n.s. vs baseline — but **p = 0.001, SIGNIFICANT vs the Kaggle 1024px run itself** |
 
 **Ten experiments null on QWK, one significant negative result, one fix that
 returned it to null, and one configuration that came closest to a real win —
@@ -980,6 +982,13 @@ confirming the hypothesis: QWK itself remains not significant, and the two cavea
 is a genuinely promising lead, not a closed case. The natural next step, if this is worth pursuing
 further, is a same-backend or multi-fold confirmation rather than treating one Kaggle run as final.
 
+> **Update (Result 14):** the same-backend confirmation has since run. 1024 px on the local MPS
+> backend does *not* beat the 512 px baseline (null, p = 0.374) -- but the backend itself, held as
+> the only variable against an otherwise identical 1024 px run, moves QWK by 0.031 (p = 0.001) and
+> exact-grade accuracy significantly (p = 0.027), a larger effect than the resolution change this
+> result reported. Caveat 1 above is no longer a theoretical footnote; it has been measured, and it
+> does not hold. See Result 14 for the full comparison and what it changes.
+
 ### What was tried, and what is left
 
 The obvious next step after Result 5 — accumulation, on the theory that lower
@@ -1025,10 +1034,15 @@ What remains, in order:
    ConvNeXt-Tiny removes BatchNorm entirely and the same grade-1-into-grade-2
    bleeding happens anyway, somewhat worse if anything. The mechanism is not
    BatchNorm-specific.
-6. **A same-backend or multi-fold confirmation of 1024 px** (Result 12) —
-   still the most promising open lead in the phase, and now the only one of
-   the two candidate explanations left standing after Result 13 ruled the
-   other one out.
+6. ~~A same-backend confirmation of 1024 px.~~ Done (Result 14): null against
+   the local baseline (p = 0.374), but the backend itself -- isolated as the
+   only variable against an otherwise identical 1024 px run -- moves QWK by
+   0.031 (p = 0.001) and exact-grade accuracy (p = 0.027), a bigger, now-
+   measured effect than the resolution change Result 12 reported. Result
+   12's causal story no longer holds. A multi-fold confirmation *on Kaggle*
+   remains open, but per Result 14 it can no longer speak to the resolution
+   hypothesis specifically, since backend alone is now known to move this
+   metric by a comparable margin.
 
 Every selection-metric attempt so far has failed by a *different* mechanism
 (QWK: tracks the wrong class; macro-recall: ignores the referral boundary;
@@ -1109,5 +1123,91 @@ grade-1-into-grade-2 collapse this project has now observed across CE, CORN (Res
 a LayerNorm-only architecture. The consistent factor across every collapse observed so far is not
 the normalisation layer -- it is `val/qwk` as the selection criterion (Result 3), which rewards
 whichever epoch is most grade-2-confident regardless of what produced it. That branch of the
-investigation is now closed; Result 12's same-backend/multi-fold 1024 px confirmation is the
-remaining open lead in this phase.
+investigation is now closed. The same-backend confirmation of Result 12 (Result 14) has since run
+and changes that result's status considerably -- see below.
+
+---
+
+## Result 14 — The same-backend confirmation: 1024 px does not reproduce locally, and the backend confound is real, not theoretical
+
+Result 12 named two caveats keeping its 1024 px finding "a lead, not a closed case": a compute-
+backend change (Kaggle CUDA/T4 vs this project's usual local MPS) confounded with the resolution
+change, and a single fold. This tests the first one directly: identical configuration to the
+Kaggle run -- same architecture, loss, hyperparameters, 1024 px images from the same manifest --
+run on the local MPS backend instead, so resolution is now the *only* thing that differs from the
+512 px baseline in this comparison.
+
+```
+                          qwk      95% CI              sens    spec    ece
+baseline (512px, MPS)    0.8930  [0.868, 0.916]       0.919   0.940  0.0646
+1024px, Kaggle (CUDA)    0.9122  [0.889, 0.935]       0.909   0.961  0.0421
+1024px, local (MPS)      0.8813  [0.852, 0.907]       0.916   0.945  0.0576
+
+local 1024px vs baseline (512px, same backend)
+  QWK difference          -0.0117   95% CI [-0.0372, +0.0136]   p = 0.374 -- not significant
+  McNemar, exact grade      46 vs 31   p = 0.110  -- not significant
+
+local 1024px vs Kaggle 1024px (same resolution, different backend)
+  QWK difference          -0.0309   95% CI [-0.0522, -0.0111]   p = 0.001 -- SIGNIFICANT
+  McNemar, exact grade      24 vs 43   p = 0.027  -- SIGNIFICANT
+```
+
+### Feasibility was checked first, and a false alarm along the way
+
+1024 px is 33% more pixels than the 768 px config that already caused real memory thrashing on
+this machine earlier in the project. A 2-epoch smoke test at the full target resolution confirmed
+it trains without OOM before the full run was launched. A swap-monitoring guard built for this run
+did fire one false alarm early on -- it flagged "no progress" after 3 minutes, not accounting for
+this resolution's ~12-minute epochs, so silence during a single still-in-progress epoch looked like
+a stall. Checking the process directly (active CPU usage in both the main process and a data-loader
+worker, swap flat rather than growing) confirmed it was working normally; the monitor's threshold
+was corrected to require both sustained silence *and* active swap growth before warning again.
+Mentioned here because it is exactly the kind of check-before-you-panic step the original 768 px
+thrashing incident (docs, this project's own commit history) shows is worth doing rather than
+assuming a slow tick means a hung process.
+
+### Locally, 1024 px is null against the baseline -- same conclusion as every resolution before it
+
+Run on the same backend as the baseline it is compared against, 1024 px does not beat 512 px: QWK
+falls slightly (-0.0117, p = 0.374) and exact-grade accuracy is not significantly different either
+(p = 0.110, though the raw count favours 1024 px 46-to-31). Per-class recall is mildly positive
+across the board (Mild +0.041, Moderate +0.030, PDR +0.085, Severe unchanged) -- a different
+*direction* than Results 1 and 5's monotonic grade-1 decline from 384 to 768 px, but not a
+statistically confirmed reversal of that trend either. Taken alone, this row is one more null
+result, consistent with every configuration in this table except Result 9 (significant, negative).
+
+### But the backend comparison is not null -- it is the most significant single-factor result in this table
+
+This is the result that actually changes something. Holding resolution, architecture, loss, and
+every hyperparameter fixed and changing only the backend moves QWK by 0.031 (p = 0.001) and exact-
+grade accuracy by a wide, significant margin (p = 0.027) -- larger than the *resolution* effect
+Result 12 originally reported (+0.0192 QWK, p = 0.104, not even significant). Kaggle's T4 run wins
+specifically on the higher-severity classes (Moderate -0.065, Severe -0.077, PDR -0.085 for the
+local run relative to Kaggle), the same classes Result 12 credited the resolution increase for
+improving.
+
+Result 12 called the backend-negligibility assumption "usually negligible... not something measured
+in this project." It has now been measured, on this exact pair of configurations, and the
+assumption does not hold. Whatever combination of CUDA/MPS kernel numerics, driver-level
+implementation differences, or subtle nondeterminism separates the two backends, it produces a
+larger, more significant shift than the resolution change Result 12 was investigating in the first
+place.
+
+### What this changes
+
+Result 12's exact-grade-accuracy finding can no longer be attributed to resolution with any
+confidence -- the backend it ran on is now known to move the same metric by a comparable or larger
+margin, on its own, with nothing else changed. This does not mean Result 12's 1024 px checkpoint is
+worse or that the finding was wrong; it means the *causal story* ("1024 px resolves microaneurysms,
+therefore accuracy improves") is no longer supported over the simpler alternative ("this ran on a
+different backend, which independently and significantly moves this metric"). The two are
+confounded in exactly the way Result 12 already suspected, and now confirmed to be confounded by an
+effect of measurable, non-trivial size rather than a theoretical footnote.
+
+**A multi-fold confirmation on Kaggle** -- training 1024 px across several folds on the *same*
+backend as the original 0.9122 result -- would still be informative for a different, narrower
+question (is Kaggle's own 1024 px result stable across folds, regardless of why it differs from
+local), but it can no longer answer "is the resolution hypothesis correct," because this result
+shows backend alone is enough to move the numbers in question. Resolving that would need running
+*both* resolutions on *both* backends -- a larger experiment than either confirmation alone, and
+not attempted here.

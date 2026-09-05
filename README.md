@@ -271,7 +271,7 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 > *safe* over-calls that stay inside the referral boundary, which is why referable sensitivity holds
 > up. Full analysis, confusion matrix and what Phase 3 must fix: [`docs/06_PHASE1_RESULTS.md`](docs/06_PHASE1_RESULTS.md).
 
-### Phase 3 ablation — twelve configurations, two significant negatives, one significant positive on a different metric
+### Phase 3 ablation — thirteen configurations, three significant negatives, one significant positive whose cause is now in question
 
 | # | Configuration | QWK | vs baseline |
 |---|---|---|---|
@@ -287,11 +287,25 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 | 10 | `--spec-floor 0.92` (recalibrated) | 0.8802 | p = 0.272, n.s. |
 | 11 | **1024 px** (Kaggle T4) | **0.9122** | p = 0.104, n.s. on QWK — **exact-grade accuracy p = 0.0003, significant** |
 | 12 | ConvNeXt-Tiny backbone (zero BatchNorm) | 0.8870 | p = 0.630, n.s. on QWK — **exact-grade accuracy p = 0.019, significant — worse** |
+| 13 | **1024 px, local (MPS, same backend as baseline)** | 0.8813 | p = 0.374, n.s. vs baseline — but **p = 0.001, significant vs the Kaggle 1024px run itself** |
 
 Paired tests (McNemar on discordant pairs, paired bootstrap for QWK) on the same 733-image
-validation split. **The baseline stands on QWK at α = 0.05. But 1024 px — the first resolution
-where a microaneurysm is actually large enough to resolve — is the closest any configuration has
-come, and the first to post an independently significant result on any metric at all.**
+validation split. **The baseline stands on QWK at α = 0.05. 1024 px on Kaggle is still numerically
+the highest QWK in the table — but Result 14 below found that switching only the compute backend,
+nothing else, moves this exact metric by a similar margin, which means that number can no longer be
+credited to resolution with any confidence.**
+
+> **1024 px, same backend (Result 14): the confound was measured, and it's real.** Result 12's
+> Kaggle run was confounded with a backend change (CUDA/T4 vs this project's usual MPS) that it
+> called "usually negligible... not something measured." Running the identical 1024 px config
+> locally settles it: against the local baseline it's null (QWK -0.0117, p = 0.374) — the same
+> conclusion as every other resolution tried. But against the Kaggle 1024px run itself, with
+> nothing but the backend different, QWK drops by 0.031 (p = 0.001) and exact-grade accuracy
+> differs significantly too (p = 0.027) — a bigger, now-measured effect than the resolution change
+> Result 12 reported in the first place. This doesn't mean Result 12 was wrong, but it does mean
+> its causal story ("1024 px resolves microaneurysms, therefore accuracy improves") no longer holds
+> over the simpler explanation that backend differences alone can move this metric by a comparable
+> amount. Full writeup: [`docs/07_PHASE3_RESULTS.md`](docs/07_PHASE3_RESULTS.md), Result 14.
 
 > **ConvNeXt-Tiny (Result 13): a named hypothesis, tested and refuted.** An earlier benchmarking
 > pass flagged EfficientNet-B0's BatchNorm at batch 4 as a plausible cause of the majority-class
