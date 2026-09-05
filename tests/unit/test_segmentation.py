@@ -168,3 +168,41 @@ def test_validation_epoch_end_skips_metrics_with_no_positives(monkeypatch):
     module.on_validation_epoch_end()
 
     assert "val/auprc" not in logged
+
+
+def test_best_dice_threshold_finds_the_true_separating_value():
+    """A score array cleanly separated at 0.6 -- the sweep should land near
+    there and report the perfect Dice score achievable at that split."""
+    from drdetect.segmentation.metrics import best_dice_threshold
+
+    rng = np.random.default_rng(0)
+    y_true = np.zeros(2000, dtype=int)
+    y_true[:400] = 1
+    y_score = np.empty(2000)
+    y_score[:400] = rng.uniform(0.6, 1.0, size=400)
+    y_score[400:] = rng.uniform(0.0, 0.6, size=1600)
+
+    threshold, dice = best_dice_threshold(y_true, y_score)
+    assert 0.5 < threshold < 0.7
+    assert dice == pytest.approx(1.0, abs=1e-6)
+
+
+def test_best_dice_threshold_beats_a_bad_fixed_threshold():
+    """Reproduces the motivating case: a model whose scores sit mostly below
+    0.5 even though its ranking is good. Dice@0.5 should read low; the tuned
+    threshold should recover a much higher Dice from the SAME scores."""
+    from drdetect.segmentation.metrics import best_dice_threshold, dice_coefficient
+
+    rng = np.random.default_rng(1)
+    y_true = np.zeros(2000, dtype=int)
+    y_true[:400] = 1
+    y_score = np.empty(2000)
+    y_score[:400] = rng.uniform(0.20, 0.30, size=400)  # positives score low
+    y_score[400:] = rng.uniform(0.0, 0.15, size=1600)  # negatives score lower
+
+    dice_at_half = dice_coefficient(y_true, y_score > 0.5)
+    threshold, _ = best_dice_threshold(y_true, y_score)
+    dice_at_tuned = dice_coefficient(y_true, y_score > threshold)
+
+    assert dice_at_half == pytest.approx(0.0, abs=1e-6)
+    assert dice_at_tuned > 0.9

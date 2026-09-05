@@ -14,8 +14,19 @@ drdetect.segmentation.metrics.pixel_auprc docstring for why pooled, not
 averaged per image: several IDRiD test images have zero lesion pixels for a
 given lesion type, and per-image AUPRC is undefined there).
 
+Dice needs a threshold; AUPRC does not. Rather than the common but unsafe
+default of a fixed 0.5 (see drdetect.segmentation.metrics.best_dice_threshold
+for a measured case where that reads Dice 0.037 on a model AUPRC independently
+scores at 0.409), the threshold is tuned on the checkpoint's own internal
+validation fold -- reconstructed here from --fold/--n-splits/--seed, which
+must match how the checkpoint was trained -- and only then frozen and applied
+to the 27 test images. Dice@0.5 is still reported alongside it, for
+continuity with earlier results and as a sanity check on how much the tuned
+threshold actually mattered.
+
 Usage:
     python scripts/evaluate_segmentation.py --checkpoint runs/.../best.ckpt
+    python scripts/evaluate_segmentation.py --checkpoint .../fold2/best.ckpt --fold 2
 """
 
 from __future__ import annotations
@@ -93,7 +104,17 @@ def main() -> int:
         "--encoder", default="resnet34", help="must match how the checkpoint was trained"
     )
     p.add_argument("--patch-size", type=int, default=512)
-    p.add_argument("--threshold", type=float, default=0.5)
+    p.add_argument(
+        "--fold", type=int, default=0, help="must match the fold the checkpoint was trained on"
+    )
+    p.add_argument("--n-splits", type=int, default=5)
+    p.add_argument("--seed", type=int, default=42, help="must match training's --seed")
+    p.add_argument(
+        "--threshold",
+        type=float,
+        default=0.5,
+        help="fixed threshold to ALSO report Dice at, for continuity with earlier results",
+    )
     p.add_argument("--tile-batch-size", type=int, default=4)
     p.add_argument("--out", default=None)
     args = p.parse_args()
@@ -101,17 +122,26 @@ def main() -> int:
     import cv2
     import numpy as np
     import torch
+    from sklearn.model_selection import KFold
 
     from drdetect.segmentation.dataset import build_patch_transforms, find_idrid_lesion_pairs
-    from drdetect.segmentation.metrics import dice_coefficient, pixel_auprc
+    from drdetect.segmentation.metrics import best_dice_threshold, dice_coefficient, pixel_auprc
     from drdetect.segmentation.model import build_segmentation_model
     from drdetect.segmentation.module import SegmentationModule
 
+    train_pairs = find_idrid_lesion_pairs(args.idrid_root, args.lesion, "train")
     test_pairs = find_idrid_lesion_pairs(args.idrid_root, args.lesion, "test")
-    if not test_pairs:
-        print(f"No {args.lesion} test pairs found under {args.idrid_root}.", file=sys.stderr)
+    if not train_pairs or not test_pairs:
+        print(f"No {args.lesion} pairs found under {args.idrid_root}.", file=sys.stderr)
         return 1
-    print(f"lesion: {args.lesion}  test images: {len(test_pairs)}")
+
+    kf = KFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+    _, val_idx = list(kf.split(train_pairs))[args.fold]
+    val_pairs = [train_pairs[i] for i in val_idx]
+    print(
+        f"lesion: {args.lesion}  val images (fold {args.fold}): {len(val_pairs)}  "
+        f"test images: {len(test_pairs)}"
+    )
 
     device = torch.device(pick_accelerator())
     model = build_segmentation_model(args.encoder, pretrained=False, classes=1)
@@ -121,53 +151,73 @@ def main() -> int:
     module.eval().to(device)
     transform = build_patch_transforms(args.patch_size, train=False)
 
-    all_probs, all_targets = [], []
-    per_image = []
-    for pair in test_pairs:
-        image = cv2.cvtColor(cv2.imread(str(pair.image_path), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)
-        mask = (cv2.imread(str(pair.mask_path), cv2.IMREAD_GRAYSCALE) > 0).astype(np.uint8)
+    def predict_pairs(pairs, label):
+        all_probs, all_targets = [], []
+        per_image = []
+        for pair in pairs:
+            image = cv2.cvtColor(
+                cv2.imread(str(pair.image_path), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB
+            )
+            mask = (cv2.imread(str(pair.mask_path), cv2.IMREAD_GRAYSCALE) > 0).astype(np.uint8)
+            prob_map = tile_predict(
+                module, image, args.patch_size, device, transform, batch_size=args.tile_batch_size
+            )
+            assert prob_map.shape == mask.shape, (
+                f"{pair.image_id}: {prob_map.shape} vs mask {mask.shape}"
+            )
+            all_probs.append(prob_map.ravel())
+            all_targets.append(mask.ravel())
+            per_image.append(
+                {
+                    "image_id": pair.image_id,
+                    "positive_pixels": int(mask.sum()),
+                    "positive_fraction": float(mask.mean()),
+                }
+            )
+            print(
+                f"  [{label}] {pair.image_id}: {mask.sum()} positive px ({mask.mean() * 100:.3f}%)"
+            )
+        return np.concatenate(all_targets), np.concatenate(all_probs), per_image
 
-        prob_map = tile_predict(
-            module, image, args.patch_size, device, transform, batch_size=args.tile_batch_size
-        )
-        assert prob_map.shape == mask.shape, (
-            f"{pair.image_id}: {prob_map.shape} vs mask {mask.shape}"
-        )
+    val_y_true, val_y_score, val_per_image = predict_pairs(val_pairs, "val")
+    tuned_threshold, val_dice_at_tuned = best_dice_threshold(val_y_true, val_y_score)
+    print(
+        f"  tuned threshold (Dice-maximising on val fold {args.fold}): {tuned_threshold:.3f}"
+        f"  (val Dice there: {val_dice_at_tuned:.4f})"
+    )
 
-        all_probs.append(prob_map.ravel())
-        all_targets.append(mask.ravel())
-        per_image.append(
-            {
-                "image_id": pair.image_id,
-                "positive_pixels": int(mask.sum()),
-                "positive_fraction": float(mask.mean()),
-            }
-        )
-        print(f"  {pair.image_id}: {mask.sum()} positive px ({mask.mean() * 100:.3f}%)")
+    test_y_true, test_y_score, test_per_image = predict_pairs(test_pairs, "test")
 
-    y_score = np.concatenate(all_probs)
-    y_true = np.concatenate(all_targets)
-
-    auprc = pixel_auprc(y_true, y_score)
-    dice = dice_coefficient(y_true, y_score > args.threshold)
+    auprc = pixel_auprc(test_y_true, test_y_score)
+    dice_fixed = dice_coefficient(test_y_true, test_y_score > args.threshold)
+    dice_tuned = dice_coefficient(test_y_true, test_y_score > tuned_threshold)
 
     print(f"\n{'=' * 60}")
     print(
-        f"pooled pixel AUPRC : {auprc:.4f}  (over {y_true.sum():,} / {len(y_true):,} positive px)"
+        f"pooled pixel AUPRC             : {auprc:.4f}  "
+        f"(over {test_y_true.sum():,} / {len(test_y_true):,} positive px)"
     )
-    print(f"pooled Dice @{args.threshold}: {dice:.4f}")
+    print(f"pooled Dice @{args.threshold} (fixed)      : {dice_fixed:.4f}")
+    print(f"pooled Dice @{tuned_threshold:.3f} (tuned on val): {dice_tuned:.4f}")
 
     result = {
         "checkpoint": args.checkpoint,
         "lesion": args.lesion,
         "encoder": args.encoder,
+        "fold": args.fold,
+        "n_splits": args.n_splits,
+        "n_val_images": len(val_pairs),
         "n_test_images": len(test_pairs),
-        "threshold": args.threshold,
+        "fixed_threshold": args.threshold,
+        "dice_at_fixed_threshold": dice_fixed,
+        "tuned_threshold": tuned_threshold,
+        "val_dice_at_tuned_threshold": val_dice_at_tuned,
+        "dice_at_tuned_threshold": dice_tuned,
         "pixel_auprc": auprc,
-        "dice": dice,
-        "total_positive_pixels": int(y_true.sum()),
-        "total_pixels": int(len(y_true)),
-        "per_image": per_image,
+        "total_positive_pixels": int(test_y_true.sum()),
+        "total_pixels": int(len(test_y_true)),
+        "per_image": test_per_image,
+        "val_per_image": val_per_image,
     }
     out_path = Path(args.out) if args.out else Path(args.checkpoint).parent / "test_evaluation.json"
     out_path.write_text(json.dumps(result, indent=2))

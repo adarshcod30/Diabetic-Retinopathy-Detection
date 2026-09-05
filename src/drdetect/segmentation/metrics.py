@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["pixel_auprc", "dice_coefficient"]
+__all__ = ["pixel_auprc", "dice_coefficient", "best_dice_threshold"]
 
 
 def pixel_auprc(y_true: np.ndarray, y_score: np.ndarray) -> float:
@@ -43,3 +43,40 @@ def dice_coefficient(y_true: np.ndarray, y_pred_binary: np.ndarray, *, eps: floa
     y_pred = np.asarray(y_pred_binary).ravel().astype(bool)
     intersection = np.logical_and(y_true, y_pred).sum()
     return float((2.0 * intersection + eps) / (y_true.sum() + y_pred.sum() + eps))
+
+
+def best_dice_threshold(
+    y_true: np.ndarray, y_score: np.ndarray, *, thresholds: np.ndarray | None = None
+) -> tuple[float, float]:
+    """Threshold that maximises Dice, swept on a fixed grid (not every unique
+    score value, unlike drdetect.eval.metrics.choose_threshold_for_sensitivity
+    -- pixel-level score arrays here run into the hundreds of millions of
+    values, and a per-unique-value sweep at that scale does not finish).
+
+    **Call this on the VALIDATION set only** -- e.g. the internal fold's held-
+    out images, never the 27 official IDRiD test images. Freeze the returned
+    threshold and apply it to the test set with dice_coefficient(), the same
+    selection/evaluation separation drdetect.eval.metrics already documents
+    for the grading model's operating point.
+
+    Fixed 0.5 is not a safe default here: an undertrained model's sigmoid
+    outputs can sit almost entirely below 0.5 even where its pixel ranking is
+    good, so Dice@0.5 can read close to zero while AUPRC (threshold-free)
+    reads far higher -- measured directly on a 2-epoch checkpoint (AUPRC
+    0.409, Dice@0.5 0.037) versus the fully-trained one (AUPRC 0.830, Dice@0.5
+    0.703) on the identical 27 test images.
+
+    Returns:
+        (best_threshold, best_dice) from the grid.
+    """
+    y_true = np.asarray(y_true).ravel()
+    y_score = np.asarray(y_score).ravel()
+    if thresholds is None:
+        thresholds = np.linspace(0.025, 0.975, 39)
+
+    best_threshold, best_dice = 0.5, -1.0
+    for t in thresholds:
+        dice = dice_coefficient(y_true, y_score > t)
+        if dice > best_dice:
+            best_threshold, best_dice = float(t), dice
+    return best_threshold, best_dice
