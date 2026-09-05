@@ -159,10 +159,11 @@ a clinician would recognise.
 > NV segmentation as future work. Do not fabricate it.
 
 > **Partially achieved:** see [`docs/10_PHASE4_RESULTS.md`](10_PHASE4_RESULTS.md). Hard exudates
-> trained and scored end to end on IDRiD's official split: test-set pixel AUPRC 0.8301, Dice 0.7034
-> (tiled full-resolution inference, 27 held-out test images, metrics pooled across pixels). No
-> cross-validated CI yet — this pass used a single 43/11 train/val split rather than the 5-fold CV
-> the roadmap specifies for this task, so the number is a first read, not yet a stable estimate.
+> trained and scored end to end on IDRiD's official split, with the 5-fold CV this item specifies:
+> test-set pixel AUPRC **0.8500 ± 0.0292** across 5 folds (tiled full-resolution inference, 27
+> held-out test images, metrics pooled across pixels). Dice is reported at a threshold tuned per
+> fold on that fold's own validation split, not a hardcoded 0.5 — the fixed threshold's fold-to-fold
+> spread (std 0.080) was over 5x the tuned threshold's (std 0.015), on the identical checkpoints.
 > Vessels, OD/fovea, quadrant mapping, haemorrhages, soft exudates, and microaneurysms remain
 > entirely unstarted.
 

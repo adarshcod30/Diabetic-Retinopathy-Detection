@@ -329,24 +329,29 @@ come, and the first to post an independently significant result on any metric at
 > backend (CUDA/T4, not this project's usual MPS) than every other row, and it is a single fold like
 > everything else in this table. Full numbers and both caveats: `docs/07_PHASE3_RESULTS.md`.
 
-### Phase 4 segmentation — hard exudates first read: test AUPRC 0.830, Dice 0.703
+### Phase 4 segmentation — 5-fold CV: hard-exudate test AUPRC 0.850 ± 0.029
 
-| Split | Images | Pixel AUPRC | Dice @ 0.5 |
-|---|---|---|---|
-| Internal val | 11 | 0.8947 | — |
-| **Official test (held out)** | **27** | **0.8301** | **0.7034** |
+| Fold | Internal val AUPRC | Test AUPRC (27 img, held out) | Dice @ 0.5 | Dice @ tuned threshold |
+|---|---|---|---|---|
+| 0 | 0.8893 | 0.8584 | 0.7440 | 0.7864 |
+| 1 | 0.9138 | 0.8543 | 0.7465 | 0.7773 |
+| 2 | 0.9017 | 0.7941 | 0.5540 | 0.7523 |
+| 3 | 0.8972 | 0.8796 | 0.7762 | 0.7917 |
+| 4 | 0.8929 | 0.8633 | 0.7339 | 0.7917 |
+| **mean ± std** | **0.8990 ± 0.0085** | **0.8500 ± 0.0292** | 0.7109 ± 0.0797 | **0.7799 ± 0.0148** |
 
 The roadmap's own plan for Phase 4 lesions is "hard exudates first — establishes the harness"
-before the other lesion types; this is that harness's first real number, trained on IDRiD's 54
-training images (43/11 internal split, no k-fold yet) and scored once, at the end, on the 27
-official test images via tiled full-resolution inference. A DeepLabV3+/resnet34 model with a
-combined BCE+Dice loss, where the BCE `pos_weight` (12.65) was measured empirically from actually
--sampled training patches rather than derived from the ~1,400:1 whole-image imbalance ratio, which
-would have overshot badly given how much the patch sampler itself already corrects for the
-imbalance. Vessels, OD/fovea, quadrant mapping, haemorrhages, soft exudates, and microaneurysms
-remain unstarted, and this pass used a single train/val split rather than the 5-fold CV the
-roadmap specifies for this task — so 0.8301 is a first read, not yet a stable estimate. Full
-method and both caveats: [`docs/10_PHASE4_RESULTS.md`](docs/10_PHASE4_RESULTS.md).
+before the other lesion types, with 5-fold CV specified for this exact task given how few images
+IDRiD's segmentation split has (81 total). A DeepLabV3+/resnet34 model with a combined BCE+Dice
+loss, BCE `pos_weight` (~15-19 across folds) measured empirically from actually-sampled training
+patches rather than derived from the ~1,400:1 whole-image imbalance ratio, trained on each of 5
+`KFold` splits of IDRiD's 54 training images and scored, every time, on the same fixed 27 official
+test images via tiled full-resolution inference. Dice is reported both at a fixed 0.5 and at a
+threshold tuned per fold on that fold's own validation split (then frozen before touching test) —
+the fixed threshold's fold-to-fold spread (std 0.080) is over 5x the tuned threshold's (std 0.015)
+on the identical checkpoints, driven mostly by fold 2's early-stopped, less-mature model. Vessels,
+OD/fovea, quadrant mapping, haemorrhages, soft exudates, and microaneurysms remain unstarted. Full
+method and both mechanism-level findings: [`docs/10_PHASE4_RESULTS.md`](docs/10_PHASE4_RESULTS.md).
 
 ### Remaining targets
 
