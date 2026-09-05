@@ -43,23 +43,26 @@ gantt
 
 - [x] Git repo + GitHub remote
 - [x] Directory scaffold, `.gitignore`, docs
-- [ ] Python 3.11 env; verify `torch.backends.mps.is_available()`
-- [ ] `pyproject.toml` — installable `drdetect` package; ruff + pre-commit + pytest skeleton
-- [ ] Download APTOS, IDRiD, DRIVE; request Messidor-2 access (**do this on day 1 — approval takes time**)
+- [x] Python 3.11 env; MPS confirmed available and in active use throughout training
+- [x] `pyproject.toml` — installable `drdetect` package; ruff + pre-commit + pytest skeleton
+- [x] Download APTOS, IDRiD, DRIVE; Messidor-2 access (images + grades) obtained and verified
 - [ ] **Data audit notebook**: class distribution, image sizes, camera types, duplicate detection,
-      and *check whether APTOS has patient IDs* — if not, document the leakage risk explicitly
-- [ ] Build `data/manifests/` with sha256 + labels
-- [ ] **Run `make bench`** and fix the scope from measured throughput, not estimates
+      and *check whether APTOS has patient IDs* — if not, document the leakage risk explicitly.
+      The underlying audits happened (APTOS has no patient IDs; ~139 near-duplicate images found
+      and de-duplicated via perceptual hashing), but as conversation output, not a committed
+      notebook artifact.
+- [x] Build `data/manifests/` with sha256 + labels — `image_id,path,sha256,dataset,label,group_id,phash,width,height`
+- [x] **Run `make bench`** and fix the scope from measured throughput, not estimates
       (see [`05_PROTOTYPE_SCOPE.md`](05_PROTOTYPE_SCOPE.md))
 
 **Exit criterion:** `pytest` passes on a clean clone; you can state the exact class distribution of
 every dataset from memory.
 
-> ⚠️ **Do first:** request Messidor-2 access. It is your locked external test set and gates Phase 8.
-> This is two separate requests, not one — the official database ships images with **no DR grade
-> labels at all**. See `docs/03_TECH_STACK.md` §5 for both: the personal-info form for images
-> (manually reviewed, no stated turnaround) and the Kaggle-hosted adjudicated grades (no approval
-> wait beyond a Kaggle account). Not yet requested as of this note.
+> **Achieved**, except the data-audit notebook itself. Messidor-2 access (both the personal-info
+> image request and the Kaggle-hosted grades) is obtained; images and grades are verified present
+> under `data/raw/messidor2/` (1,748 images, `messidor_data.csv`, plus `pairs_left_right.csv` for
+> patient eye-pairing — relevant to Phase 8: a patient's two eyes aren't independent samples for
+> bootstrap CIs).
 
 ---
 
