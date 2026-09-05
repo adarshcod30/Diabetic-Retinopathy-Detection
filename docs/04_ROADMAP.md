@@ -138,6 +138,19 @@ your target). Referable-DR sensitivity ≥ 90 % at the chosen operating point.
 > **Watch for:** grade-1 recall will be your worst class by a wide margin. Track per-class recall every
 > run, not just aggregate QWK — QWK will hide a total grade-1 failure.
 
+> **Concluded, exit criterion not met:** see [`docs/07_PHASE3_RESULTS.md`](07_PHASE3_RESULTS.md), 13
+> results across 12 configurations. Baseline QWK 0.8930 stands at α = 0.05; 1024px (Result 12,
+> QWK 0.9122) is the closest lead but not yet significant on QWK itself (p = 0.104), confounded by
+> a compute-backend change and a single fold. Resolution sweep: 384/512/768/1024 all tried (224
+> never run), refuted as a lever — grade-1 recall falls monotonically below 1024px. Backbone
+> comparison: ConvNeXt-Tiny tried and found significantly *worse* on exact-grade accuracy (Result
+> 13) — EfficientNetV2-S and Swin-Tiny untried. Ordinal loss: CORN tried and found not to help
+> (Result 2); CORAL, plain regression, and distance-aware CE remain untested (the latter two
+> already have working code via `--loss regression`/`--loss distance_ce`, just never run as
+> ablation rows). Class-imbalance, augmentation study, TTA, and 5-fold ensembling are all
+> unstarted. EyePACS/RETFound pretraining was investigated and found not runnable on this
+> project's local compute as-is.
+
 ---
 
 ## Phase 4 — Segmentation (Weeks 9–11)

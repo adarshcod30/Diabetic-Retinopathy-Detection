@@ -30,6 +30,7 @@ referable) with **paired** significance tests.
 > | 10 | 5-fold CV: baseline is stable (0.8965 ± 0.0116) but QWK ≥ 0.90 is a ~40% background rate; grade-3 recall is consistently poor across every fold | [§](#result-10--5-fold-cross-validation-the-baseline-is-stable-and-090-is-a-coin-flip) |
 > | 11 | Recalibrated floor (0.92) fixes the saturation from Result 9 -- span widens ~5x, QWK returns to null (not significant) instead of significantly worse | [§](#result-11--recalibrating-the-floor-to-092-fixes-the-saturation-qwk-returns-to-null) |
 > | 12 | 1024px (Kaggle, T4): QWK +0.0192 but p=0.104, still not significant -- yet exact-grade accuracy is significantly better (p=0.0003). The closest to a win in the whole phase, on a different metric than the one every other row was judged on | [§](#result-12--1024-px-qwk-still-not-significant-but-exact-grade-accuracy-is) |
+> | 13 | ConvNeXt-Tiny (zero BatchNorm, LayerNorm throughout): QWK null (p=0.630), but exact-grade accuracy is significantly *worse* (p=0.019) and grade-1 recall collapses to 0.230 from 0.541. Closes the "is it BatchNorm" hypothesis this project raised about itself -- it wasn't | [§](#result-13--convnext-tiny-removes-batchnorm-entirely-and-the-collapse-happens-anyway) |
 
 ---
 
@@ -48,6 +49,7 @@ referable) with **paired** significance tests.
 | 9 | 512 px, **`--monitor val/sens_at_spec85`** (floor 0.85) | 0.8557 | 0.913 | 0.945 | 0.0434 | p = 0.003, **SIGNIFICANT (worse)** |
 | 10 | 512 px, **`--spec-floor 0.92`** (recalibrated) | 0.8802 | 0.909 | 0.952 | 0.0553 | p = 0.272, **n.s.** |
 | 11 | **1024 px** (Kaggle T4) | 0.9122 | 0.909 | 0.961 | **0.0421** | p = 0.104, n.s. on QWK — **exact-grade accuracy p = 0.0003, SIGNIFICANT** |
+| 12 | 512 px, **ConvNeXt-Tiny** backbone (no BatchNorm) | 0.8870 | 0.903 | 0.961 | 0.0819 | p = 0.630, n.s. on QWK — **exact-grade accuracy p = 0.019, SIGNIFICANT (worse)** |
 
 **Ten experiments null on QWK, one significant negative result, one fix that
 returned it to null, and one configuration that came closest to a real win —
@@ -1019,9 +1021,14 @@ What remains, in order:
    the baseline is stable (0.8965 ± 0.0116) but QWK ≥ 0.90 is only a ~40%
    background rate at this sample size; grade-3 recall is consistently poor
    across every fold and is a real model limitation, not fold noise.
-5. **A same-backend or multi-fold confirmation of 1024 px** (Result 12) —
-   the natural next step if the exact-grade-accuracy signal is worth
-   pursuing further, now that it is the most promising lead in the phase.
+5. ~~Is the collapse a small-batch BatchNorm artifact?~~ Closed (Result 13):
+   ConvNeXt-Tiny removes BatchNorm entirely and the same grade-1-into-grade-2
+   bleeding happens anyway, somewhat worse if anything. The mechanism is not
+   BatchNorm-specific.
+6. **A same-backend or multi-fold confirmation of 1024 px** (Result 12) —
+   still the most promising open lead in the phase, and now the only one of
+   the two candidate explanations left standing after Result 13 ruled the
+   other one out.
 
 Every selection-metric attempt so far has failed by a *different* mechanism
 (QWK: tracks the wrong class; macro-recall: ignores the referral boundary;
@@ -1032,3 +1039,75 @@ sizes) to the phase's single most promising lead (Result 12, the first
 MA-resolvable size) — the opposite trajectory, and a reminder that a refuted
 hypothesis at the wrong operating point is not the same as a refuted
 hypothesis.
+
+---
+
+## Result 13 — ConvNeXt-Tiny removes BatchNorm entirely, and the collapse happens anyway
+
+An earlier memory-feasibility investigation (the one that first found the batch-4 instability
+this project has worked around since) flagged a specific, named suspect for the majority-class
+collapse: EfficientNet-B0's BatchNorm estimates running statistics *per micro-batch*, and at
+batch 4 those statistics are noisy in a way freezing BN only partially addresses. ConvNeXt-Tiny
+uses LayerNorm throughout -- confirmed directly (`has BatchNorm: False`, `has LayerNorm: True`)
+before spending any training time on it -- which has no batch-size dependence at all. If the
+collapse is a BatchNorm artifact, an architecture with none of it should not show the same
+failure. Same fold, same manifest, same hyperparameters as the baseline (512 px, CE, lr 1e-4,
+warmup 3, patience 8) -- only the backbone changes, so this slots into the ablation table exactly
+like every other row.
+
+```
+                     qwk      95% CI              sens    spec    ece
+baseline (EffNet-B0) 0.8930  [0.868, 0.916]      0.919   0.940  0.0646
+ConvNeXt-Tiny         0.8870  [0.863, 0.908]      0.903   0.961  0.0819
+
+QWK difference (B - A)   -0.0060   95% CI [-0.0327, +0.0208]   p = 0.630 -- not significant
+McNemar, exact grade       44 vs 70   p = 0.0188 -- SIGNIFICANT (baseline more often right)
+McNemar, referable call    25 vs 21   p = 0.659  -- not significant
+```
+
+### Feasibility was checked before committing the compute
+
+ConvNeXt-Tiny is 27.8M parameters against EfficientNet-B0's ~4-5M -- a ~6x increase -- on a
+machine that has already hit real memory instability at 768 px with the *smaller* model. A 2-epoch
+smoke run at the exact target settings (512 px, batch 4) confirmed it trains cleanly with no OOM
+or thrashing before the full run was launched, rather than discovering a problem several hours in.
+
+### QWK is null, but exact-grade accuracy is significantly *worse*
+
+Unlike Result 12, where exact-grade accuracy was the significant improvement QWK's ordinal
+weighting was diluting, here it runs the other way: the baseline gets 70 images exactly right that
+ConvNeXt gets wrong, against only 44 the other direction (p = 0.0188). ConvNeXt is not a neutral
+side-grade on a metric QWK happens to hide -- it is measurably worse at getting the precise ICDR
+grade right, even though QWK's ordinal tolerance for near-miss errors mostly absorbs the damage.
+
+### The class that matters most is the one that collapsed hardest
+
+| Class | n | baseline | ConvNeXt | delta |
+|---|---|---|---|---|
+| 0 No DR | 361 | 0.981 | 0.953 | -0.028 |
+| 1 Mild | 74 | 0.541 | **0.230** | **-0.311** |
+| 2 Moderate | 200 | 0.855 | 0.860 | +0.005 |
+| 3 Severe | 39 | 0.359 | 0.333 | -0.026 |
+| 4 PDR | 59 | 0.458 | 0.576 | +0.119 |
+
+Grade 1 (Mild) recall falls by 0.311 -- from already this project's own documented weak point
+down to less than half its baseline value. The confusion matrix shows exactly where those cases
+went: 51 of 74 true grade-1 images are predicted grade 2, against CE's own baseline confusion
+count and the CORN-collapse pattern from Result 2 (49 of 74) -- this is the *same* grade-1-into-
+grade-2 failure mode, on an architecture with zero BatchNorm layers, arguably slightly worse than
+the CORN run that motivated calling it a collapse in the first place. PDR recall improves
+(+0.119), consistent with ConvNeXt's larger capacity helping the model commit more confidently to
+severe, visually distinctive cases -- exactly the kind of trade a QWK-only readout would not show,
+which is why per-class recall is reported every time in this document regardless of the headline
+metric.
+
+### What this closes
+
+The BatchNorm-at-batch-4 hypothesis, raised as a plausible mechanism and left untested until now,
+is refuted: removing BatchNorm entirely did not prevent, reduce, or meaningfully change the
+grade-1-into-grade-2 collapse this project has now observed across CE, CORN (Result 2), and CE on
+a LayerNorm-only architecture. The consistent factor across every collapse observed so far is not
+the normalisation layer -- it is `val/qwk` as the selection criterion (Result 3), which rewards
+whichever epoch is most grade-2-confident regardless of what produced it. That branch of the
+investigation is now closed; Result 12's same-backend/multi-fold 1024 px confirmation is the
+remaining open lead in this phase.

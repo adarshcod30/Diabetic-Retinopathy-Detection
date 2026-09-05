@@ -271,7 +271,7 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 > *safe* over-calls that stay inside the referral boundary, which is why referable sensitivity holds
 > up. Full analysis, confusion matrix and what Phase 3 must fix: [`docs/06_PHASE1_RESULTS.md`](docs/06_PHASE1_RESULTS.md).
 
-### Phase 3 ablation — eleven configurations, one significant (negative), one significant (positive, different metric)
+### Phase 3 ablation — twelve configurations, two significant negatives, one significant positive on a different metric
 
 | # | Configuration | QWK | vs baseline |
 |---|---|---|---|
@@ -286,11 +286,23 @@ EfficientNet-B0 · 512 px · APTOS fold 0 · 733 validation images ([full report
 | 9 | `--monitor val/sens_at_spec85`, floor 0.85 | 0.8557 | **p = 0.003, significant — worse** |
 | 10 | `--spec-floor 0.92` (recalibrated) | 0.8802 | p = 0.272, n.s. |
 | 11 | **1024 px** (Kaggle T4) | **0.9122** | p = 0.104, n.s. on QWK — **exact-grade accuracy p = 0.0003, significant** |
+| 12 | ConvNeXt-Tiny backbone (zero BatchNorm) | 0.8870 | p = 0.630, n.s. on QWK — **exact-grade accuracy p = 0.019, significant — worse** |
 
 Paired tests (McNemar on discordant pairs, paired bootstrap for QWK) on the same 733-image
 validation split. **The baseline stands on QWK at α = 0.05. But 1024 px — the first resolution
 where a microaneurysm is actually large enough to resolve — is the closest any configuration has
 come, and the first to post an independently significant result on any metric at all.**
+
+> **ConvNeXt-Tiny (Result 13): a named hypothesis, tested and refuted.** An earlier benchmarking
+> pass flagged EfficientNet-B0's BatchNorm at batch 4 as a plausible cause of the majority-class
+> collapse, since its running statistics are noisy per micro-batch. ConvNeXt-Tiny uses LayerNorm
+> throughout — confirmed to have zero BatchNorm layers before spending any training time on it —
+> which has no batch-size dependence at all. The exact same collapse happened anyway: grade-1
+> recall fell from 0.541 to 0.230, with 51 of 74 true grade-1 images predicted grade 2 — the same
+> failure mode as CORN's collapse (Result 2, 49 of 74), on a completely different architecture.
+> This closes the BatchNorm hypothesis; `val/qwk` selection rewarding grade-2-confident epochs
+> (Result 3) remains the one mechanism consistent across every collapse observed so far. Full
+> writeup: [`docs/07_PHASE3_RESULTS.md`](docs/07_PHASE3_RESULTS.md), Result 13.
 
 > **Two hypotheses tested and refuted, plus a fix that backfired.** §2.2 of the analysis argued
 > resolution was the dominant hyperparameter, because grade 1 is defined by microaneurysms
