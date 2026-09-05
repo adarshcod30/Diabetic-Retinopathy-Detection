@@ -6,15 +6,16 @@ train/test split, scored by pixel AUPRC (see drdetect.segmentation.metrics
 for why AUPRC and not AUROC -- IDRiD lesions are <0.1% positive pixels).
 
 IDRiD's segmentation set is small (54 train / 27 test images total, see
-docs/04_ROADMAP.md Phase 4), so this script does a single internal train/val
-split of the 54 training images for model selection and reserves the 27
-official test images entirely for scripts/evaluate_segmentation.py. No k-fold
-here -- 54 images is already thin, and splitting it further would trade away
-the little training signal there is for a stability check Phase 3 already
-established the pattern for elsewhere.
+docs/04_ROADMAP.md Phase 4). `--folds` selects which of `--n-splits` k-fold
+splits of the 54 training images to run -- one at a time by default (fold 0,
+matching scripts/train.py's own default), or `--folds 0,1,2,3,4` for the full
+cross-validation the roadmap specifies for this task. The 27 official test
+images are never touched here at all; they are reserved entirely for
+scripts/evaluate_segmentation.py.
 
 Usage:
-    python scripts/train_segmentation.py                       # hard_exudates baseline
+    python scripts/train_segmentation.py                       # fold 0 only
+    python scripts/train_segmentation.py --folds 0,1,2,3,4      # full 5-fold CV
     python scripts/train_segmentation.py --lesion haemorrhages
     python scripts/train_segmentation.py --smoke                # 2 epochs, 4 images
 """
@@ -84,7 +85,8 @@ def main() -> int:
     p.add_argument("--patch-size", type=int, default=512)
     p.add_argument("--patches-per-image", type=int, default=20)
     p.add_argument("--lesion-patch-prob", type=float, default=0.8)
-    p.add_argument("--val-fraction", type=float, default=0.2)
+    p.add_argument("--folds", default="0", help="comma-separated fold indices, e.g. 0,1,2,3,4")
+    p.add_argument("--n-splits", type=int, default=5)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--epochs", type=int, default=40)
     p.add_argument("--lr", type=float, default=1e-4)
@@ -114,6 +116,7 @@ def main() -> int:
     import numpy as np
     from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
     from lightning.pytorch.loggers import CSVLogger
+    from sklearn.model_selection import KFold
     from torch.utils.data import DataLoader
 
     from drdetect.segmentation.dataset import IDRiDLesionDataset, find_idrid_lesion_pairs
@@ -132,15 +135,13 @@ def main() -> int:
         )
         return 1
 
-    rng = np.random.default_rng(args.seed)
-    order = rng.permutation(len(train_pairs))
-    n_val = max(1, round(args.val_fraction * len(train_pairs)))
-    val_idx, tr_idx = set(order[:n_val].tolist()), set(order[n_val:].tolist())
-    tr_pairs = [train_pairs[i] for i in sorted(tr_idx)]
-    val_pairs = [train_pairs[i] for i in sorted(val_idx)]
-
-    if args.smoke:
-        tr_pairs, val_pairs = tr_pairs[:4], val_pairs[:2]
+    # Computed once so every requested fold comes from the SAME partition of
+    # the 54 images -- calling KFold().split() fresh per fold with the same
+    # seed would happen to be equivalent here since it's deterministic, but
+    # doing it once up front is what makes that a fact of implementation
+    # rather than something each fold's code has to get right independently.
+    kf = KFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+    splits = list(kf.split(train_pairs))
 
     accelerator = pick_accelerator()
     epochs = 2 if args.smoke else args.epochs
@@ -150,123 +151,152 @@ def main() -> int:
     print(f"accelerator : {accelerator}")
     print(f"encoder     : {args.encoder} @ {args.patch_size}px patches, batch {args.batch_size}")
     print(f"epochs      : {epochs}{'  (SMOKE)' if args.smoke else ''}")
-    print(
-        f"train images: {len(tr_pairs)}  val images: {len(val_pairs)}  (27 official test images held out)"
-    )
+    print("27 official IDRiD test images are held out for every fold -- never used here")
 
-    train_ds = IDRiDLesionDataset(
-        tr_pairs,
-        patch_size=args.patch_size,
-        train=True,
-        patches_per_image=args.patches_per_image,
-        lesion_patch_prob=args.lesion_patch_prob,
-        seed=args.seed,
-    )
-    val_ds = IDRiDLesionDataset(
-        val_pairs,
-        patch_size=args.patch_size,
-        train=False,
-        patches_per_image=args.patches_per_image,
-        lesion_patch_prob=args.lesion_patch_prob,
-        seed=args.seed + 1,
-    )
-    print(f"train patches/epoch: {len(train_ds)}  val patches/epoch: {len(val_ds)}")
+    results = []
+    for fold in [int(f) for f in args.folds.split(",")]:
+        print(f"\n{'=' * 60}\nFold {fold}/{args.n_splits}\n{'=' * 60}")
+        tr_idx, val_idx = splits[fold]
+        tr_pairs = [train_pairs[i] for i in tr_idx]
+        val_pairs = [train_pairs[i] for i in val_idx]
 
-    pos_weight = estimate_pos_weight(train_ds, args.pos_weight_samples)
-    print(f"empirical pos_weight (neg:pos over sampled patches): {pos_weight:.2f}")
+        if args.smoke:
+            tr_pairs, val_pairs = tr_pairs[:4], val_pairs[:2]
 
-    common = {
-        "batch_size": args.batch_size,
-        "num_workers": args.workers,
-        "worker_init_fn": worker_init_fn,
-        "persistent_workers": args.workers > 0,
-        "pin_memory": accelerator == "gpu",
-    }
-    train_dl = DataLoader(train_ds, shuffle=True, drop_last=True, **common)
-    val_dl = DataLoader(val_ds, shuffle=False, **common)
+        print(f"train images: {len(tr_pairs)}  val images: {len(val_pairs)}")
 
-    model = build_segmentation_model(args.encoder, pretrained=True, classes=1)
-    module = SegmentationModule(
-        model,
-        lr=args.lr,
-        weight_decay=args.weight_decay,
-        pos_weight=pos_weight,
-        dice_weight=args.dice_weight,
-        max_epochs=epochs,
-    )
-
-    out_dir = Path(args.out_dir) / f"{run_name}_fold0"
-    if out_dir.exists() and not args.resume and not args.smoke:
-        print(
-            f"\nERROR: {out_dir} already exists.\n"
-            f"Continuing would delete its metrics.csv and leave the OLD best.ckpt in place.\n"
-            f"Pass --run-name to use a new name, --resume to continue, or delete the directory first.",
-            file=sys.stderr,
+        train_ds = IDRiDLesionDataset(
+            tr_pairs,
+            patch_size=args.patch_size,
+            train=True,
+            patches_per_image=args.patches_per_image,
+            lesion_patch_prob=args.lesion_patch_prob,
+            seed=args.seed,
         )
-        return 1
+        val_ds = IDRiDLesionDataset(
+            val_pairs,
+            patch_size=args.patch_size,
+            train=False,
+            patches_per_image=args.patches_per_image,
+            lesion_patch_prob=args.lesion_patch_prob,
+            seed=args.seed + 1,
+        )
+        print(f"  train patches/epoch: {len(train_ds)}  val patches/epoch: {len(val_ds)}")
 
-    trainer = L.Trainer(
-        max_epochs=epochs,
-        accelerator=accelerator,
-        devices=1,
-        gradient_clip_val=args.grad_clip if args.grad_clip > 0 else None,
-        precision="32-true",
-        deterministic=False,
-        logger=CSVLogger(
-            save_dir="runs", name=run_name, version="fold0", flush_logs_every_n_steps=10
-        ),
-        callbacks=[
-            ModelCheckpoint(
-                dirpath=out_dir,
-                filename="best",
-                monitor="val/auprc",
-                mode="max",
-                save_top_k=1,
-                save_last=True,
+        pos_weight = estimate_pos_weight(train_ds, args.pos_weight_samples)
+        print(f"  empirical pos_weight (neg:pos over sampled patches): {pos_weight:.2f}")
+
+        common = {
+            "batch_size": args.batch_size,
+            "num_workers": args.workers,
+            "worker_init_fn": worker_init_fn,
+            "persistent_workers": args.workers > 0,
+            "pin_memory": accelerator == "gpu",
+        }
+        train_dl = DataLoader(train_ds, shuffle=True, drop_last=True, **common)
+        val_dl = DataLoader(val_ds, shuffle=False, **common)
+
+        model = build_segmentation_model(args.encoder, pretrained=True, classes=1)
+        module = SegmentationModule(
+            model,
+            lr=args.lr,
+            weight_decay=args.weight_decay,
+            pos_weight=pos_weight,
+            dice_weight=args.dice_weight,
+            max_epochs=epochs,
+        )
+
+        out_dir = Path(args.out_dir) / f"{run_name}_fold{fold}"
+        if out_dir.exists() and not args.resume and not args.smoke:
+            print(
+                f"\nERROR: {out_dir} already exists.\n"
+                f"Continuing would delete its metrics.csv and leave the OLD best.ckpt in place.\n"
+                f"Pass --run-name to use a new name, --resume to continue, or delete the directory first.",
+                file=sys.stderr,
+            )
+            return 1
+
+        trainer = L.Trainer(
+            max_epochs=epochs,
+            accelerator=accelerator,
+            devices=1,
+            gradient_clip_val=args.grad_clip if args.grad_clip > 0 else None,
+            precision="32-true",
+            deterministic=False,
+            logger=CSVLogger(
+                save_dir="runs", name=run_name, version=f"fold{fold}", flush_logs_every_n_steps=10
             ),
-            ModelCheckpoint(dirpath=out_dir, filename="latest", monitor=None, every_n_epochs=1),
-            EarlyStopping(monitor="val/auprc", mode="max", patience=args.patience, min_delta=1e-3),
-            LearningRateMonitor(logging_interval="epoch"),
-        ],
-        log_every_n_steps=10,
-        enable_progress_bar=True,
-    )
-    resume_from = out_dir / "latest.ckpt"
-    if args.resume and resume_from.exists():
-        print(f"  resuming from {resume_from}")
-        trainer.fit(module, train_dl, val_dl, ckpt_path=str(resume_from))
-    else:
-        if args.resume:
-            print(f"  --resume given but {resume_from} not found; starting fresh")
-        trainer.fit(module, train_dl, val_dl)
+            callbacks=[
+                ModelCheckpoint(
+                    dirpath=out_dir,
+                    filename="best",
+                    monitor="val/auprc",
+                    mode="max",
+                    save_top_k=1,
+                    save_last=True,
+                ),
+                ModelCheckpoint(dirpath=out_dir, filename="latest", monitor=None, every_n_epochs=1),
+                EarlyStopping(
+                    monitor="val/auprc", mode="max", patience=args.patience, min_delta=1e-3
+                ),
+                LearningRateMonitor(logging_interval="epoch"),
+            ],
+            log_every_n_steps=10,
+            enable_progress_bar=True,
+        )
+        resume_from = out_dir / "latest.ckpt"
+        if args.resume and resume_from.exists():
+            print(f"  resuming from {resume_from}")
+            trainer.fit(module, train_dl, val_dl, ckpt_path=str(resume_from))
+        else:
+            if args.resume:
+                print(f"  --resume given but {resume_from} not found; starting fresh")
+            trainer.fit(module, train_dl, val_dl)
 
-    ckpt_cb = trainer.checkpoint_callback
-    best_auprc = (
-        float(ckpt_cb.best_model_score)
-        if ckpt_cb is not None and ckpt_cb.best_model_score is not None
-        else float("nan")
-    )
+        ckpt_cb = trainer.checkpoint_callback
+        best_auprc = (
+            float(ckpt_cb.best_model_score)
+            if ckpt_cb is not None and ckpt_cb.best_model_score is not None
+            else float("nan")
+        )
+        fold_result = {
+            "fold": fold,
+            "n_train_images": len(tr_pairs),
+            "n_val_images": len(val_pairs),
+            "pos_weight": pos_weight,
+            "best_val_auprc": best_auprc,
+            "epochs_run": trainer.current_epoch + 1,
+            "best_checkpoint": str(ckpt_cb.best_model_path) if ckpt_cb else "",
+        }
+        results.append(fold_result)
+        print(
+            f"\nFold {fold}: best val/auprc={best_auprc:.4f} ({fold_result['epochs_run']} epochs)"
+        )
 
+    summary_path = Path("runs") / run_name / "summary.json"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    auprcs = [r["best_val_auprc"] for r in results]
     summary = {
         "run_name": run_name,
         "config": vars(args),
-        "n_train_images": len(tr_pairs),
-        "n_val_images": len(val_pairs),
-        "pos_weight": pos_weight,
-        "best_val_auprc": best_auprc,
-        "epochs_run": trainer.current_epoch + 1,
-        "best_checkpoint": str(ckpt_cb.best_model_path) if ckpt_cb else "",
+        "n_splits": args.n_splits,
+        "folds": results,
+        "val_auprc_mean": float(np.nanmean(auprcs)),
+        "val_auprc_std": float(np.nanstd(auprcs)),
     }
-    summary_path = Path("runs") / run_name / "summary.json"
-    summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summary, indent=2, default=str))
 
     print(f"\n{'=' * 60}")
-    print(f"BEST val/auprc: {best_auprc:.4f}  ({summary['epochs_run']} epochs)")
+    if len(results) > 1:
+        print(
+            f"val/auprc across {len(results)} folds: "
+            f"{summary['val_auprc_mean']:.4f} +/- {summary['val_auprc_std']:.4f}"
+        )
+    else:
+        print(f"BEST val/auprc: {auprcs[0]:.4f}  ({results[0]['epochs_run']} epochs)")
     print(f"Summary: {summary_path}")
-    print(
-        f"Next: python scripts/evaluate_segmentation.py --checkpoint {summary['best_checkpoint']}"
-    )
+    for r in results:
+        print(f"Next: python scripts/evaluate_segmentation.py --checkpoint {r['best_checkpoint']}")
     return 0
 
 
