@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -30,7 +31,15 @@ from drdetect.grading.model import build_model
 from drdetect.grading.module import CLASS_NAMES
 from drdetect.quality.assessment import QualityResult, assess_quality
 
-__all__ = ["PredictionResult", "load_grader", "run_pipeline"]
+if TYPE_CHECKING:
+    # Not a real import: drdetect.fusion.features pulls in lightning and
+    # segmentation_models_pytorch, which the Phase 2 vertical slice
+    # (scripts/predict.py, the demo) has no reason to load unless a caller
+    # actually asks for lesion evidence -- see add_lesion_evidence below,
+    # which imports it lazily at call time instead.
+    from drdetect.fusion.features import LesionModels
+
+__all__ = ["PredictionResult", "load_grader", "run_pipeline", "add_lesion_evidence"]
 
 
 @dataclass(frozen=True)
@@ -44,6 +53,12 @@ class PredictionResult:
     class_probs: list[float] | None = None
     cam_overlay: np.ndarray | None = None
     calibrated: bool = False
+    # Phase 6: populated only by `add_lesion_evidence`, since it needs 5 extra
+    # loaded models `run_pipeline` itself has no reason to require -- None
+    # here means "not computed", not "no lesions found".
+    lesion_overlay: np.ndarray | None = None
+    lesion_evidence: dict | None = None
+    icdr_rationale: str | None = None
 
 
 def load_grader(
@@ -127,3 +142,48 @@ def run_pipeline(
         cam_overlay=overlay,
         calibrated=temperature != 1.0,
     )
+
+
+def add_lesion_evidence(
+    result: PredictionResult, image_path: str, lesion_models: LesionModels
+) -> PredictionResult:
+    """Phase 6: attach a lesion-overlay render, an ICDR evidence table, and a
+    templated rationale to an already-graded `PredictionResult`.
+
+    A separate step from `run_pipeline`, not folded into it, because it needs
+    5 extra loaded models (`drdetect.fusion.features.load_lesion_models`) that
+    the Phase 2 vertical slice (`scripts/predict.py`, the Gradio demo) has no
+    reason to always pay the cost of loading. Takes a file path, not the
+    in-memory array `run_pipeline` works from, because the lesion models
+    apply their own preprocessing convention (raw images, full resolution,
+    tiled inference) that differs from the grading model's Ben-Graham cache
+    -- see `drdetect.fusion.embedding`'s own docstring for why these two
+    models deliberately see different versions of the same image.
+
+    No-ops (returns `result` unchanged) if the image was rejected by the
+    quality gate -- there's no grade to explain evidence for.
+    """
+    if result.grade is None:
+        return result
+
+    from dataclasses import replace
+
+    from drdetect.explain.evidence import (
+        build_icdr_rationale,
+        extract_lesion_evidence,
+        render_lesion_overlay,
+    )
+
+    evidence = extract_lesion_evidence(image_path, lesion_models)
+    overlay = render_lesion_overlay(_load_rgb(image_path), evidence)
+    rationale = build_icdr_rationale(result.grade, evidence)
+
+    return replace(
+        result, lesion_overlay=overlay, lesion_evidence=evidence, icdr_rationale=rationale
+    )
+
+
+def _load_rgb(image_path: str):
+    import cv2
+
+    return cv2.cvtColor(cv2.imread(str(image_path), cv2.IMREAD_COLOR), cv2.COLOR_BGR2RGB)

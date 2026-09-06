@@ -560,6 +560,21 @@ anything. A pointing-game/IoU table alone would have rated Eigen-CAM the best of
 running the sanity check first shows that's backwards. Full method and both findings:
 [`docs/18_PHASE6_CAM_LOCALIZATION_RESULTS.md`](docs/18_PHASE6_CAM_LOCALIZATION_RESULTS.md).
 
+### Phase 6 report redesign — lesion overlays, ICDR evidence, and a rationale grounded in real detections
+
+The last three buildable Phase 6 items, verified end to end on a real image rather than just
+unit-tested: outline renders (not filled blobs — an outline points at tissue without hiding it) for
+hard/soft exudates and haemorrhages, circle markers for accepted microaneurysm candidates, and a
+templated rationale reporting what was actually detected rather than restating the predicted grade.
+On IDRiD_20 (predicted grade 3, Severe NPDR), the rationale read: *"147 microaneurysm candidate(s);
+77 haemorrhage region(s) across 4 quadrant(s); hard exudates covering 2.09% of the image..."* —
+haemorrhages in all 4 quadrants happens to be one of ICDR's own defining criteria for severe NPDR, an
+unprompted alignment between the detected evidence and the predicted grade. A grade-4 rationale
+states outright that proliferative DR's defining feature (neovascularisation) has no detector in
+this project, rather than implying evidence that was never found. The extended PDF report (third
+image panel, colour legend, evidence text) still fits comfortably on one A4 page. Full method:
+[`docs/19_PHASE6_REPORT_RESULTS.md`](docs/19_PHASE6_REPORT_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -635,7 +650,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 15_PHASE4_MICROANEURYSMS_RESULTS.md  # candidate+classify pipeline, classifier bottleneck
 │   ├── 16_PHASE5_FUSION_RESULTS.md  # lesion features + fusion head, exit criterion not met
 │   ├── 17_PHASE5_UNCERTAINTY_RESULTS.md  # MC-dropout + human-escalation, strong result
-│   └── 18_PHASE6_CAM_LOCALIZATION_RESULTS.md  # pointing-game/IoU vs IDRiD masks, chance-adjusted
+│   ├── 18_PHASE6_CAM_LOCALIZATION_RESULTS.md  # pointing-game/IoU vs IDRiD masks, chance-adjusted
+│   └── 19_PHASE6_REPORT_RESULTS.md  # lesion overlays, ICDR evidence, redesigned PDF report
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests

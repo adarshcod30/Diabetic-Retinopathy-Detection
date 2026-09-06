@@ -27,6 +27,28 @@ _DISCLAIMER = (
 )
 
 
+def _draw_lesion_legend(c: canvas.Canvas, x: float, y: float) -> float:
+    """A small colour key for the lesion-overlay panel -- an outline is only
+    legible if the viewer knows what each colour means."""
+    from drdetect.explain.evidence import LESION_COLORS_RGB
+
+    labels = {
+        "hard_exudates": "Hard exudates",
+        "soft_exudates": "Soft exudates",
+        "haemorrhages": "Haemorrhages",
+        "microaneurysms": "Microaneurysms",
+    }
+    c.setFont("Helvetica", 8)
+    for lesion_type, label in labels.items():
+        r, g, b = LESION_COLORS_RGB[lesion_type]
+        c.setFillColorRGB(r / 255, g / 255, b / 255)
+        c.rect(x, y - 7, 8, 8, fill=1, stroke=0)
+        c.setFillColor(colors.black)
+        c.drawString(x + 11, y - 6, label)
+        x += 11 + len(label) * 4.3 + 14
+    return y - 14
+
+
 def _draw_wrapped(
     c: canvas.Canvas, text: str, x: float, y: float, width: float, font_size: int = 9
 ) -> float:
@@ -92,22 +114,37 @@ def build_report_pdf(
         c.drawString(margin, y, "Quality metrics (for reference):")
         y -= 14
     else:
-        img_w = (page_w - 2 * margin - 10) / 2
+        panels = [
+            (Image.fromarray(result.preprocessed.astype(np.uint8)), "Preprocessed image"),
+            (
+                Image.fromarray(result.cam_overlay.astype(np.uint8)),
+                "Grad-CAM evidence (predicted grade)",
+            ),
+        ]
+        if result.lesion_overlay is not None:
+            panels.append(
+                (
+                    Image.fromarray(result.lesion_overlay.astype(np.uint8)),
+                    "Lesion evidence (outlines)",
+                )
+            )
+
+        gap = 10
+        img_w = (page_w - 2 * margin - gap * (len(panels) - 1)) / len(panels)
         img_h = img_w  # preprocessed images are square (circle_crop -> resize)
 
-        preprocessed_img = Image.fromarray(result.preprocessed.astype(np.uint8))
-        cam_img = Image.fromarray(result.cam_overlay.astype(np.uint8))
-
-        c.drawImage(_pil_reader(preprocessed_img), margin, y - img_h, width=img_w, height=img_h)
-        c.drawImage(_pil_reader(cam_img), margin + img_w + 10, y - img_h, width=img_w, height=img_h)
-        c.setFont("Helvetica", 8)
-        c.setFillColor(colors.grey)
-        c.drawCentredString(margin + img_w / 2, y - img_h - 12, "Preprocessed image")
-        c.drawCentredString(
-            margin + img_w + 10 + img_w / 2, y - img_h - 12, "Grad-CAM evidence (predicted grade)"
-        )
+        for i, (panel_img, label) in enumerate(panels):
+            x = margin + i * (img_w + gap)
+            c.drawImage(_pil_reader(panel_img), x, y - img_h, width=img_w, height=img_h)
+            c.setFont("Helvetica", 8)
+            c.setFillColor(colors.grey)
+            c.drawCentredString(x + img_w / 2, y - img_h - 12, label)
         c.setFillColor(colors.black)
-        y = y - img_h - 30
+        y = y - img_h - 26
+
+        if result.lesion_overlay is not None:
+            y = _draw_lesion_legend(c, margin, y)
+        y -= 6
 
         c.setFont("Helvetica-Bold", 14)
         referable_tag = "REFERABLE" if result.referable else "not referable"
@@ -115,6 +152,14 @@ def build_report_pdf(
             margin, y, f"ICDR grade {result.grade}: {result.grade_name}  ({referable_tag})"
         )
         y -= 20
+
+        if result.icdr_rationale:
+            c.setFont("Helvetica-Bold", 10)
+            c.drawString(margin, y, "Evidence:")
+            y -= 14
+            c.setFont("Helvetica", 9)
+            y = _draw_wrapped(c, result.icdr_rationale, margin + 8, y, page_w - 2 * margin - 8)
+            y -= 6
 
         calib_label = "temperature-scaled" if result.calibrated else "uncalibrated"
         c.setFont("Helvetica", 10)

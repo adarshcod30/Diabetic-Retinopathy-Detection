@@ -286,9 +286,9 @@ significant McNemar p-value.
 - [x] **Adebayo sanity checks**: model-randomisation and data-randomisation tests. Report which methods
       pass. *A negative result is a real result* — most DR papers never run this.
 - [x] **Quantified localisation vs IDRiD masks**: pointing game accuracy, CAM–lesion IoU, per-lesion-type
-- [ ] Lesion-overlay rendering (outlines beat blobs for clinical legibility)
-- [ ] ICDR evidence table → templated natural-language rationale
-- [ ] Final PDF report design
+- [x] Lesion-overlay rendering (outlines beat blobs for clinical legibility)
+- [x] ICDR evidence table → templated natural-language rationale
+- [x] Final PDF report design
 - [ ] **Measure the 30-second target**: time ≥20 report reviews; report mean ± SD. Recruit an MBBS
       student if possible — even n=1 clinician feedback beats none
 
@@ -314,7 +314,17 @@ IoU). This is the most novel artefact in the project.
 > locally-plausible-looking heatmap is not a substitute for the sanity check, since a method that
 > never reads the classifier's weights can still land on a generically-salient structure by luck
 > of what fundus photos look like, independent of whether the model is any good.
-> The 30-second timing item remains open — it needs a human reviewer this project cannot supply.
+> **Lesion overlays, the ICDR evidence table, and the redesigned report are also done** (see
+> [`docs/19_PHASE6_REPORT_RESULTS.md`](19_PHASE6_REPORT_RESULTS.md)): outline (not filled-blob)
+> renders of hard exudates/soft exudates/haemorrhages plus circle markers for accepted
+> microaneurysm candidates, a templated rationale grounded in actual per-image detections (not a
+> restatement of the grade), and an extended PDF with a third image panel and colour legend --
+> verified end to end on a real image, not just unit-tested. That verification image (IDRiD_20,
+> predicted grade 3) happened to show haemorrhages in all 4 quadrants, one of ICDR's own defining
+> criteria for severe NPDR -- an unprompted, genuine alignment between detected evidence and
+> predicted grade, on n=1.
+> **This closes every Phase 6 item except the 30-second timing study**, which needs a human
+> reviewer this project cannot supply.
 
 ---
 
