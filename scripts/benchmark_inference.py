@@ -16,7 +16,7 @@ Two numbers are measured, because the real pipeline is two-tier:
      it is measured separately rather than assumed to run on every image.
 
 Usage:
-    python scripts/benchmark_inference.py --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt
+    python scripts/benchmark_inference.py --checkpoint models/checkpoints/sweep_512_regression_fold0/best.ckpt --loss regression
     python scripts/benchmark_inference.py --n-images 50 --n-full-pipeline 8
 """
 
@@ -42,9 +42,13 @@ def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--checkpoint", default="models/checkpoints/cv_baseline_fold1/best.ckpt")
+    p.add_argument(
+        "--checkpoint", default="models/checkpoints/sweep_512_regression_fold0/best.ckpt"
+    )
     p.add_argument("--backbone", default="efficientnet_b0")
-    p.add_argument("--loss", default="ce", choices=["ce", "corn", "regression", "distance_ce"])
+    p.add_argument(
+        "--loss", default="regression", choices=["ce", "corn", "regression", "distance_ce"]
+    )
     p.add_argument("--size", type=int, default=512)
     p.add_argument("--device", default="cpu", help="the deployed pipeline is CPU-only by design")
     p.add_argument("--n-images", type=int, default=40, help="images for the grading-only timing")

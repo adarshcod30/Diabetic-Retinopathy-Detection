@@ -35,9 +35,12 @@ RUN pip install --no-cache-dir .
 # Model weights are NOT baked into the image (Messidor-2/APTOS licences
 # restrict redistribution, and IDRiD/DRIVE weights are research-use only --
 # see MODEL_CARD.md): mount a checkpoint at runtime instead.
+# Defaults match the released checkpoint (docs/22_PHASE8_VALIDATION_RESULTS.md: regression
+# loss beat the CE baseline decisively on the locked external evaluation, referable AUC
+# 0.924 vs 0.888, DeLong p=6.1e-10) -- override at `docker run` time for a different one.
 ENV DRDETECT_CHECKPOINT=/models/checkpoint.ckpt
 ENV DRDETECT_BACKBONE=efficientnet_b0
-ENV DRDETECT_LOSS=ce
+ENV DRDETECT_LOSS=regression
 ENV DRDETECT_SIZE=512
 
 EXPOSE 8000

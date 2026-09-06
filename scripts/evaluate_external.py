@@ -4,18 +4,20 @@
 docs/04_ROADMAP.md, Phase 8: "Evaluate on the locked Messidor-2/IDRiD test
 set. Once." This script is the "once": it takes one or more ALREADY-CHOSEN
 final checkpoints (chosen using internal APTOS validation only -- see
-scripts/train.py runs and docs/22_PHASE8_ABLATION_RESULTS.md -- never by
+scripts/train.py runs and docs/21_PHASE8_ABLATION_RESULTS.md -- never by
 looking at this data) and, in a single pass, computes every statistic the
 roadmap asks for from the SAME frozen predictions: QWK, referable sens/spec
 at a threshold frozen from INTERNAL validation (not re-tuned here), bootstrap
 CIs, DeLong AUC comparison (if >1 checkpoint given), subgroup analysis by an
 approximate quality tier, and a worst-error gallery. Running this script
 again with different checkpoints, after having seen its own output, is
-exactly the practice Phase 8 exists to prevent -- don't.
+exactly the practice Phase 8 exists to prevent -- don't. It has ALREADY BEEN
+RUN, once, for this project's own choice: docs/22_PHASE8_VALIDATION_RESULTS.md
+is the result, and Messidor-2/IDRiD's grading test split is now spent.
 
 Usage:
-    python scripts/evaluate_external.py --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt
-    python scripts/evaluate_external.py --checkpoint A/best.ckpt --checkpoint B/best.ckpt --label A --label B
+    python scripts/evaluate_external.py --checkpoint models/checkpoints/sweep_512_regression_fold0/best.ckpt --loss regression
+    python scripts/evaluate_external.py --checkpoint A/best.ckpt --checkpoint B/best.ckpt --label A --label B --loss ce --loss regression
 """
 
 from __future__ import annotations

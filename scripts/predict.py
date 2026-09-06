@@ -5,7 +5,8 @@ This is the Phase 2 exit criterion (docs/04_ROADMAP.md): hand it a JPEG, get a
 PDF back. Deliberately CPU-only -- see `drdetect.serve.pipeline.load_grader`.
 
 Usage:
-    python scripts/predict.py --image photo.jpg --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt
+    python scripts/predict.py --image photo.jpg \
+        --checkpoint models/checkpoints/sweep_512_regression_fold0/best.ckpt --loss regression
     python scripts/predict.py --image photo.jpg --checkpoint best.ckpt --out reports/photo.pdf
 """
 

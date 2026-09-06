@@ -27,5 +27,7 @@ if __name__ == "__main__":
 
     from drdetect.serve.demo import build_interface
 
-    demo = build_interface(CHECKPOINT, backbone="efficientnet_b0", loss_name="ce", size=512)
+    # regression loss, not ce: it won the locked external evaluation decisively
+    # (docs/22_PHASE8_VALIDATION_RESULTS.md, referable AUC 0.924 vs 0.888, DeLong p=6.1e-10)
+    demo = build_interface(CHECKPOINT, backbone="efficientnet_b0", loss_name="regression", size=512)
     demo.launch()

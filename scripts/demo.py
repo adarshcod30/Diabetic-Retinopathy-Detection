@@ -2,7 +2,7 @@
 """Launch the local Gradio demo. See drdetect.serve.demo for the interface itself.
 
 Usage:
-    python scripts/demo.py --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt
+    python scripts/demo.py --checkpoint models/checkpoints/sweep_512_regression_fold0/best.ckpt --loss regression
 """
 
 from __future__ import annotations

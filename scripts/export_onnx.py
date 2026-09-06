@@ -9,7 +9,7 @@ the exported ONNX graph via onnxruntime and reports the actual max/mean
 absolute difference between their raw head outputs.
 
 Usage:
-    python scripts/export_onnx.py --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt
+    python scripts/export_onnx.py --checkpoint models/checkpoints/sweep_512_regression_fold0/best.ckpt --loss regression
 """
 
 from __future__ import annotations
@@ -25,9 +25,13 @@ def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--checkpoint", default="models/checkpoints/cv_baseline_fold1/best.ckpt")
+    p.add_argument(
+        "--checkpoint", default="models/checkpoints/sweep_512_regression_fold0/best.ckpt"
+    )
     p.add_argument("--backbone", default="efficientnet_b0")
-    p.add_argument("--loss", default="ce", choices=["ce", "corn", "regression", "distance_ce"])
+    p.add_argument(
+        "--loss", default="regression", choices=["ce", "corn", "regression", "distance_ce"]
+    )
     p.add_argument("--size", type=int, default=512)
     p.add_argument(
         "--out", default=None, help="default: models/onnx/<backbone>_<loss>_<size>px.onnx"

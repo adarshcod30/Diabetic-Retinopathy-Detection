@@ -36,13 +36,21 @@ preprocess:  ## Cache APTOS at 512px (10GB -> ~200MB), then Messidor-2 and IDRiD
 train:  ## Run a training experiment (override any flag with ARGS="--size 384 --loss corn")
 	.venv/bin/python scripts/train.py $(ARGS)
 
+# The released model (docs/22_PHASE8_VALIDATION_RESULTS.md): regression loss beat the CE
+# baseline decisively on the locked external evaluation (referable AUC 0.924 vs 0.888,
+# DeLong p=6.1e-10), despite weaker internal exact-grade accuracy -- that external result,
+# not the internal one, is why this is the default everywhere below.
+RELEASE_CHECKPOINT := models/checkpoints/sweep_512_regression_fold0/best.ckpt
+RELEASE_LOSS := regression
+
 evaluate:  ## Reproduce the headline table on the locked external test set (Messidor-2 + IDRiD)
 	.venv/bin/python scripts/evaluate_external.py \
-		--checkpoint $(or $(CHECKPOINT),models/checkpoints/cv_baseline_fold1/best.ckpt) \
+		--checkpoint $(or $(CHECKPOINT),$(RELEASE_CHECKPOINT)) --loss $(or $(LOSS),$(RELEASE_LOSS)) \
 		--bootstrap 2000 --i-understand-this-runs-once
 
-demo:  ## Launch the Gradio demo (override checkpoint with CHECKPOINT=...)
-	.venv/bin/python scripts/demo.py --checkpoint $(or $(CHECKPOINT),models/checkpoints/cv_baseline_fold1/best.ckpt)
+demo:  ## Launch the Gradio demo (override with CHECKPOINT=... LOSS=...)
+	.venv/bin/python scripts/demo.py \
+		--checkpoint $(or $(CHECKPOINT),$(RELEASE_CHECKPOINT)) --loss $(or $(LOSS),$(RELEASE_LOSS))
 
 sim:  ## Run the district screening simulation
 	.venv/bin/python -m simulation.simpy.district --patients-per-year 100000
