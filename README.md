@@ -514,6 +514,28 @@ under-generalises even on IDRiD), or redundancy with what the CNN embedding alre
 None of these is confirmed; closing this gap is next. Full method and honest numbers:
 [`docs/16_PHASE5_FUSION_RESULTS.md`](docs/16_PHASE5_FUSION_RESULTS.md).
 
+### Phase 5 uncertainty + escalation — this one works: a 35-point accuracy gap between confidence quintiles
+
+| Uncertainty quintile | Accuracy |
+|---|---|
+| Q1 (most confident) | 0.9932 |
+| Q2 | 0.9932 |
+| Q3 | 0.7755 |
+| Q4 | 0.7192 |
+| Q5 (least confident) | 0.6438 |
+
+Spearman(uncertainty, correctness) = -0.382, p = 8.0e-27 — about as far from chance as a result in
+this project gets. MC-dropout on the baseline checkpoint (20 stochastic passes/image, BatchNorm
+re-frozen after reactivating dropout — EfficientNet's dropout in `timm` is functional, not a
+removable module, so standard reactivation would also un-freeze BatchNorm's running stats without
+this fix) produces an uncertainty signal that cleanly separates the model's reliable predictions
+from its unreliable ones on its own standard 733-image validation fold. Escalating the most
+uncertain 20% of cases to an assumed-perfect grader lifts QWK from 0.894 to 0.940; escalating 50%
+reaches 0.991. That's a stated ceiling, not a measured human accuracy — this project has no real
+reviewer to test the escalation policy against, same constraint as Phase 6's clinician timing
+study. Full method and numbers:
+[`docs/17_PHASE5_UNCERTAINTY_RESULTS.md`](docs/17_PHASE5_UNCERTAINTY_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -587,7 +609,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 13_PHASE4_HAEMORRHAGES_RESULTS.md  # haemorrhage segmentation, large val-test gap
 │   ├── 14_PHASE4_SOFT_EXUDATES_RESULTS.md  # soft exudate segmentation, single split
 │   ├── 15_PHASE4_MICROANEURYSMS_RESULTS.md  # candidate+classify pipeline, classifier bottleneck
-│   └── 16_PHASE5_FUSION_RESULTS.md  # lesion features + fusion head, exit criterion not met
+│   ├── 16_PHASE5_FUSION_RESULTS.md  # lesion features + fusion head, exit criterion not met
+│   └── 17_PHASE5_UNCERTAINTY_RESULTS.md  # MC-dropout + human-escalation, strong result
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests

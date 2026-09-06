@@ -239,12 +239,13 @@ a clinician would recognise.
 - [x] Fusion head: `concat(CNN embedding, lesion features)` → ordinal head
 - [x] Quality gating: route Reject → recapture, Usable → flag in report *(Phase 2)*
 - [x] **Temperature scaling** on a held-out split; reliability diagram + ECE before/after
-- [ ] Uncertainty: MC-dropout or deep ensemble
+- [x] Uncertainty: MC-dropout or deep ensemble
 - [x] **Operating point selection on validation only**, then frozen *(scripts/evaluate.py,
       since Phase 1: `choose_threshold_for_sensitivity(...)` on the selection split,
       `evaluate_at_threshold(...)` on the evaluation split -- used throughout Phase 3's own
       results, docs/07)*
-- [ ] Human-escalation policy: route bottom-*k* % confidence to a grader; measure the AI+human system
+- [x] Human-escalation policy: route bottom-*k* % confidence to a grader; measure the AI+human system
+      *(simulated with an assumed-perfect grader -- no real reviewer to measure against exists)*
 
 **Exit criterion:** ECE < 0.05 after calibration; the fusion model beats the grading-only model with a
 significant McNemar p-value.
@@ -267,8 +268,15 @@ significant McNemar p-value.
 > whose own classifier already under-generalises on IDRiD itself, see docs/15 -- or redundancy
 > with what the CNN embedding already encodes). **Operating-point selection was already built** in
 > `scripts/evaluate.py` since Phase 1 and used throughout Phase 3 -- not a Phase 5 gap, just not
-> previously cross-referenced from this section. Uncertainty estimation and the human-escalation
-> policy remain open.
+> previously cross-referenced from this section.
+> **Uncertainty + human-escalation, by contrast, work well** (see
+> [`docs/17_PHASE5_UNCERTAINTY_RESULTS.md`](17_PHASE5_UNCERTAINTY_RESULTS.md)): MC-dropout on the
+> baseline checkpoint (733-image val fold) shows a sharp, highly significant relationship between
+> uncertainty and error -- accuracy 99.3% in the two lowest uncertainty quintiles vs. 64.4% in the
+> highest (Spearman rho=-0.382, p=8.0e-27). Escalating just the most-uncertain 20% of cases to an
+> assumed-perfect grader lifts QWK from 0.894 to 0.940. That perfect-grader assumption is a stated
+> ceiling, not a measured human accuracy -- this project has no real reviewer to test against, the
+> same constraint Phase 6's clinician timing study already flags.
 
 ---
 
