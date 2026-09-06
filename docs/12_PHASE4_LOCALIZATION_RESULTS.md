@@ -1,19 +1,21 @@
-# Phase 4 Results — OD & Fovea Localisation (IDRiD)
+# Phase 4 Results — OD/Fovea Localisation & Quadrant Mapping (IDRiD)
 
-The roadmap's exit criterion for this item: mean localisation error < 0.5x OD diameter. Unlike
+The roadmap's exit criterion for OD/fovea: mean localisation error < 0.5x OD diameter. Unlike
 hard-exudate segmentation or vessels, this one clears its target outright, on a genuine held-out
-official test set.
+official test set. Quadrant mapping, the roadmap's next item and a direct consumer of this one's
+output, is also covered here (Result 3) since it's a small deterministic follow-on rather than a
+separate model.
 
 ## What this covers, and what it doesn't
 
 Built: a heatmap-regression harness --
-`src/drdetect/segmentation/localization.py`, `scripts/{train_localization,evaluate_localization}.py`.
-A DeepLabV3+/resnet34 model with a 2-channel output (optic disc, fovea), each channel trained
-against a 2D Gaussian centred on the true point, with the predicted point read back off as each
-channel's argmax at inference.
+`src/drdetect/segmentation/localization.py`, `scripts/{train_localization,evaluate_localization}.py`
+-- plus `src/drdetect/segmentation/quadrants.py` for quadrant mapping. A DeepLabV3+/resnet34 model
+with a 2-channel output (optic disc, fovea), each channel trained against a 2D Gaussian centred on
+the true point, with the predicted point read back off as each channel's argmax at inference.
 
-Not built: quadrant mapping (the next roadmap item, and it depends directly on this one's OD-fovea
-axis), haemorrhages, soft exudates, microaneurysms.
+Not built: haemorrhages, soft exudates, and microaneurysms -- next in the roadmap's own stated
+order for the remaining IDRiD lesion types.
 
 ## Method
 
@@ -77,10 +79,27 @@ fovea to fail the 0.5-diameter bar outright, most severely on IDRiD_065 at 1.665
 three times the target. Median fovea error (0.053) is far below the mean (0.103), confirming these
 are a small number of real outliers dragging the mean up, not a systematically noisy metric.
 
+## Result 3 — Quadrant mapping: a deterministic geometric follow-on, no model needed
+
+`src/drdetect/segmentation/quadrants.py` divides the retina into four quadrants using two lines
+through the OD -- one along the OD-fovea axis, one perpendicular to it -- exactly as the roadmap
+specifies. No training involved; the only inputs are the OD and fovea (x, y) points this phase's
+own model already produces. Verified two ways: 6 unit tests (axis orthogonality/unit-length,
+correct handling of an OD-fovea axis at an arbitrary orientation, all four quadrants distinguishable
+and consistent), and a direct check against a real trained prediction (`IDRiD_001`, OD=(651, 1453),
+Fovea=(1914, 1617)) confirming two diagonally-opposite sample points resolve to diagonally-opposite
+quadrant labels.
+
+**One deliberate scope limit, stated plainly rather than left implicit**: quadrant labels here
+describe geometry ("foveal-side" / "disc-side", "superior" / "inferior"), not asserted anatomy
+("nasal" / "temporal"). Which side of the OD is nasal vs. temporal depends on which eye (OD/OS) an
+image is of, and neither IDRiD nor this project's other datasets carry reliable per-image
+eye-laterality labels to resolve that safely. A deployment with real laterality metadata could
+remap these four geometric labels to true anatomical quadrants in one place
+(`QUADRANT_LABELS`) without touching the underlying axis math.
+
 ## What's still open
 
-- **Quadrant mapping** from the OD-fovea axis -- the next roadmap item, directly enabled by this
-  one now existing.
 - **The three fovea outliers** were not investigated further (e.g. whether they share a quality or
   pathology characteristic) -- worth a look if fovea-specific accuracy becomes load-bearing for a
   downstream feature (e.g. distance-to-fovea in Phase 5's lesion feature extractor).

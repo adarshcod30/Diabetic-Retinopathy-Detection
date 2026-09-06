@@ -164,7 +164,7 @@ your target). Referable-DR sensitivity ≥ 90 % at the chosen operating point.
 
 - [ ] **Vessels** — U-Net on DRIVE, 48×48 patches. Target Dice ≈ 0.80+, AUC ≈ 0.97+
 - [x] **OD & fovea** — heatmap regression on IDRiD. Target: mean localisation error < 0.5 × OD diameter
-- [ ] **Quadrant mapping** from OD–fovea axis (needed for ICDR's quadrant-based rules)
+- [x] **Quadrant mapping** from OD–fovea axis (needed for ICDR's quadrant-based rules)
 - [ ] **Lesions** — DeepLabv3+/U-Net on IDRiD (only **81 masked images** → 5-fold CV, heavy aug,
       patch sampling at full resolution)
   - [x] Hard exudates first (easiest, highest contrast) — establishes the harness
@@ -197,7 +197,12 @@ a clinician would recognise.
 > 413/103 split scores combined mean error **0.075 OD-diameters** on the 103 held-out test images
 > (target < 0.5) — 103/103 images clear the target on OD alone, 100/103 on fovea, with three real
 > fovea-specific outliers (worst: 1.67 diameters on IDRiD_065) where OD localisation stays accurate
-> regardless. Quadrant mapping, haemorrhages, soft exudates, and microaneurysms remain unstarted.
+> regardless. **Quadrant mapping** is a deterministic geometric follow-on (two lines through the OD,
+> one along the OD-fovea axis, one perpendicular), needing no model — verified by 6 unit tests plus
+> a direct check against a real trained prediction. Labels describe geometry ("foveal-side" /
+> "disc-side", "superior" / "inferior"), not asserted nasal/temporal anatomy, since eye laterality
+> isn't reliably available in this project's datasets to make that mapping safely. Haemorrhages,
+> soft exudates, and microaneurysms remain unstarted.
 
 ---
 

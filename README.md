@@ -419,8 +419,15 @@ ships OD masks, under different filename numbering that can't be joined to this 
 at full resolution) as a fixed proxy. OD localisation is reliable on every single test image; the
 three fovea failures (worst: IDRiD_065 at 1.665 diameters) all keep excellent OD accuracy alongside
 them, pointing at a fovea-specific weakness — plausibly its low, boundary-less contrast next to the
-optic disc's sharp edge — rather than a general localisation problem. Full method and the outlier
-analysis: [`docs/12_PHASE4_LOCALIZATION_RESULTS.md`](docs/12_PHASE4_LOCALIZATION_RESULTS.md).
+optic disc's sharp edge — rather than a general localisation problem.
+
+**Quadrant mapping** (the next roadmap item) needed no model at all: two lines through the OD, one
+along the OD-fovea axis and one perpendicular, verified by 6 unit tests plus a direct check against
+a real trained prediction. Labels describe geometry ("foveal-side"/"disc-side",
+"superior"/"inferior"), not asserted nasal/temporal anatomy, since eye laterality isn't reliably
+available in this project's datasets to make that mapping safely. Full method, the fovea-outlier
+analysis, and the quadrant-mapping scope note:
+[`docs/12_PHASE4_LOCALIZATION_RESULTS.md`](docs/12_PHASE4_LOCALIZATION_RESULTS.md).
 
 ### Remaining targets
 
