@@ -168,7 +168,7 @@ your target). Referable-DR sensitivity ≥ 90 % at the chosen operating point.
 - [ ] **Lesions** — DeepLabv3+/U-Net on IDRiD (only **81 masked images** → 5-fold CV, heavy aug,
       patch sampling at full resolution)
   - [x] Hard exudates first (easiest, highest contrast) — establishes the harness
-  - [ ] Haemorrhages, soft exudates
+  - [x] Haemorrhages, soft exudates
   - [ ] **Microaneurysms last and separately**: morphological top-hat + matched filter candidate
         generation → small CNN classifier. Do *not* expect plain segmentation to work here.
 - [ ] Report **AUPRC per lesion class** (AUROC is meaningless at <0.1 % positive pixels)
@@ -206,10 +206,16 @@ a clinician would recognise.
 > the identical hard-exudate harness, 5-fold CV, internal val AUPRC looks respectable
 > (**0.767 ± 0.033**) but drops far more on the held-out test set (**0.540 ± 0.041**) than hard
 > exudates did (0.899→0.850) — a plausibly real generalisation gap (haemorrhages are morphologically
-> more varied than hard exudates), not yet independently confirmed. Soft exudates and
-> microaneurysms remain unstarted; soft exudates and everything after uses a single train/val split
-> rather than 5-fold CV going forward, a deliberate scoping decision to manage total time across the
-> remaining Phase 4/5/6 items.
+> more varied than hard exudates), not yet independently confirmed. **Soft exudates** (see
+> [`docs/14_PHASE4_SOFT_EXUDATES_RESULTS.md`](14_PHASE4_SOFT_EXUDATES_RESULTS.md)): the same harness,
+> single train/val split (26 training images total, the smallest lesion subset), test AUPRC
+> **0.6144** vs. internal val **0.8117** — a gap between hard exudates' and haemorrhages' on the
+> identical harness, roughly in line with the roadmap's own prior expectation that this lesion type
+> (fewest training examples) would be hard to generalise from. Threshold tuning again helps (Dice
+> 0.5546 → 0.5929). Soft exudates and everything after uses a single train/val split rather than
+> 5-fold CV, a deliberate scoping decision to manage total time across the remaining Phase 4/5/6
+> items. **Microaneurysms remains unstarted** — the roadmap's own required different method
+> (morphological candidate generation + classifier, not segmentation).
 
 ---
 

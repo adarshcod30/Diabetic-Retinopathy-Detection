@@ -452,6 +452,23 @@ its own checkpoint rather than retrained from scratch, landing at the identical 
 already reached live. Full method and the incident notes:
 [`docs/13_PHASE4_HAEMORRHAGES_RESULTS.md`](docs/13_PHASE4_HAEMORRHAGES_RESULTS.md).
 
+### Phase 4 soft exudates — test AUPRC 0.614, val 0.812 (single split, smallest lesion subset)
+
+| Split | AUPRC | Dice @ 0.5 | Dice @ tuned (0.775) |
+|---|---|---|---|
+| Val (6 img) | 0.8117 | — | 0.5755 |
+| Test (14 img, held out) | 0.6144 | 0.5546 | 0.5929 |
+
+Same harness again, retargeted via `--lesion soft_exudates`. Per an explicit scoping decision made
+partway through Phase 4 (to manage total time across the remaining Phase 4/5/6 items), this is a
+**single train/val split, not 5-fold CV** — one data point, not a distribution. Soft exudates is
+IDRiD's smallest segmentation subset (26 training images total, half of haemorrhages'), and the
+val→test AUPRC drop (0.812→0.614) lands between hard exudates' (0.899→0.850) and haemorrhages'
+(0.767→0.540) — roughly the outcome the roadmap anticipated going in ("fewest training examples,
+weakest signal"), though the size-vs-morphology question of why the gap isn't *larger* than
+haemorrhages' despite less data remains unverified. Threshold tuning helps again (Dice 0.5546→0.5929).
+Full method: [`docs/14_PHASE4_SOFT_EXUDATES_RESULTS.md`](docs/14_PHASE4_SOFT_EXUDATES_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -522,7 +539,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 10_PHASE4_RESULTS.md      # hard-exudate segmentation, IDRiD 5-fold CV
 │   ├── 11_PHASE4_VESSELS_RESULTS.md  # vessel segmentation, DRIVE 5-fold CV
 │   ├── 12_PHASE4_LOCALIZATION_RESULTS.md  # OD/fovea heatmap regression, target cleared
-│   └── 13_PHASE4_HAEMORRHAGES_RESULTS.md  # haemorrhage segmentation, large val-test gap
+│   ├── 13_PHASE4_HAEMORRHAGES_RESULTS.md  # haemorrhage segmentation, large val-test gap
+│   └── 14_PHASE4_SOFT_EXUDATES_RESULTS.md  # soft exudate segmentation, single split
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
