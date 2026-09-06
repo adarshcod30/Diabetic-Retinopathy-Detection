@@ -32,6 +32,7 @@ os.environ.setdefault("PYTORCH_MPS_HIGH_WATERMARK_RATIO", "0.8")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 CLASS_NAMES = ["No DR", "Mild", "Moderate", "Severe", "PDR"]
+DEFAULT_BACKBONE = "efficientnet_b0"
 EXTERNAL_MANIFESTS = {
     "messidor2": "data/manifests/messidor2_512.csv",
     "idrid_test": "data/manifests/idrid_test_512.csv",
@@ -128,8 +129,17 @@ def main() -> int:
     )
     p.add_argument("--checkpoint", action="append", required=True, dest="checkpoints")
     p.add_argument("--label", action="append", dest="labels", default=None)
-    p.add_argument("--backbone", default="efficientnet_b0")
-    p.add_argument("--loss", default="ce", choices=["ce", "corn", "regression", "distance_ce"])
+    p.add_argument("--backbone", action="append", dest="backbones", default=None)
+    p.add_argument(
+        "--loss",
+        action="append",
+        dest="losses",
+        default=None,
+        choices=["ce", "corn", "regression", "distance_ce"],
+        help="one per --checkpoint, same order (finalists can use different losses/backbones -- "
+        "e.g. baseline is ce, a regression-loss finalist is regression). Omit entirely to default "
+        "every checkpoint to ce.",
+    )
     p.add_argument("--size", type=int, default=512)
     p.add_argument("--data-root", default="data/processed")
     p.add_argument("--bootstrap", type=int, default=2000)
@@ -158,7 +168,16 @@ def main() -> int:
         referable_labels,
     )
 
+    n = len(args.checkpoints)
     labels = args.labels or [Path(c).parent.name for c in args.checkpoints]
+    losses = args.losses or ["ce"] * n
+    backbones = args.backbones or [DEFAULT_BACKBONE] * n
+    if len(labels) != n or len(losses) != n or len(backbones) != n:
+        p.error(
+            f"--checkpoint given {n} times but --label/--loss/--backbone given "
+            f"{len(labels)}/{len(losses)}/{len(backbones)} times -- give one of each per "
+            f"--checkpoint, in the same order, or omit a flag entirely to default it for all."
+        )
     device = "cpu"
 
     all_records = []
@@ -182,15 +201,17 @@ def main() -> int:
     )
 
     results_per_model = {}
-    for checkpoint, label in zip(args.checkpoints, labels, strict=True):
-        print(f"\n=== {label}: {checkpoint} ===")
+    for checkpoint, label, loss_name, backbone in zip(
+        args.checkpoints, labels, losses, backbones, strict=True
+    ):
+        print(f"\n=== {label}: {checkpoint} (loss={loss_name}, backbone={backbone}) ===")
         print("  computing internal-validation threshold (APTOS val, never external data)...")
-        threshold = _internal_val_threshold(checkpoint, args.backbone, args.loss, args.size, device)
+        threshold = _internal_val_threshold(checkpoint, backbone, loss_name, args.size, device)
         print(f"  frozen threshold (from internal val, target sens 0.90): {threshold:.4f}")
 
         print(f"  scoring {len(all_records)} external images...")
         scored = _score_checkpoint(
-            checkpoint, args.backbone, args.loss, args.size, device, all_records, args.data_root
+            checkpoint, backbone, loss_name, args.size, device, all_records, args.data_root
         )
         results_per_model[label] = {"threshold": threshold, **scored}
 
