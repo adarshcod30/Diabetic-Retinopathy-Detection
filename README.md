@@ -23,9 +23,16 @@
 > including the ones that came in below target, reported the same way as the ones that didn't.
 > No unmeasured number is presented as a result.
 >
-> A public **Gradio demo Space was not deployed**: HuggingFace now requires a PRO subscription to
-> host a Gradio Space (static-only Spaces are free), which this account does not have. Run it
-> locally instead: `make demo`, or `python scripts/demo.py --checkpoint <path> --loss regression`.
+> **Try it live**: [huggingface.co/spaces/adarshcod30/drdetect-dr-screening](https://huggingface.co/spaces/adarshcod30/drdetect-dr-screening).
+> Free-tier Gradio Spaces now run on HF's shared ZeroGPU hardware rather than free CPU-basic, which
+> needed three real fixes beyond just uploading the code (an `import spaces` registration
+> requirement, a dummy never-called `@spaces.GPU` function ZeroGPU's startup check requires, and
+> forcing `device="cpu"` explicitly because `torch.cuda.is_available()` reports `True` there even
+> outside an actual GPU grant) — plus one genuine bug in this project's own code that deploying it
+> surfaced: Grad-CAM's target-class indexing assumed a 5-way head and crashed on the released
+> regression-loss model's single-output head the first time it predicted a non-zero grade,
+> fixed and covered by a new regression test (`src/drdetect/serve/pipeline.py`,
+> `tests/integration/test_serve_pipeline.py`).
 
 ---
 
@@ -674,7 +681,7 @@ test set with significance tests — is specified in
 | **Serving** | FastAPI + the existing Phase 2 pipeline — CPU-only, no GPU assumed | **Built and tested**; `/grade` endpoint wraps `load_grader`/`run_pipeline` (`src/drdetect/serve/api.py`, `tests/integration/test_serve_api.py`) |
 | **Containerisation** | A `Dockerfile` for `linux/amd64` + `linux/arm64` was built and began an image build successfully | **Descoped by decision, not abandoned** — cut before a full build/push to keep this project's footprint on its own development machine minimal; the FastAPI service above ships and runs directly instead |
 | **Connectivity** | Store-and-forward queue modelled explicitly in the Phase 7 simulation (1–10 Mbps rural links, per-camp outage injection) | **Modelled**, see [`docs/20_PHASE7_SIMULATION_RESULTS.md`](docs/20_PHASE7_SIMULATION_RESULTS.md) — bandwidth turned out not to be the bottleneck at 100k patients/year; grader headcount is |
-| **Public demo** | Gradio on HuggingFace Spaces (`app.py` at this repo's root is the Spaces entry point; `scripts/demo.py` is the local equivalent) | App code **ready**; actual Space creation and weight upload is a deliberate, explicit publishing step this project has not taken automatically — see the model card for the weights' research-use-only terms |
+| **Public demo** | Gradio on HuggingFace Spaces, free ZeroGPU tier (`app.py` at this repo's root is the Spaces entry point; `scripts/demo.py` is the local equivalent) | **Live**: [huggingface.co/spaces/adarshcod30/drdetect-dr-screening](https://huggingface.co/spaces/adarshcod30/drdetect-dr-screening) — see the model card for the weights' research-use-only terms |
 | **CI/CD** | GitHub Actions — ruff, pytest, and an end-to-end single-image smoke test on CPU |
 | **Monitoring** | Audit log of every prediction + grader override; drift review before any retraining |
 | **Reproducibility** | Hydra configs, fixed seeds, sha256 data manifests; `make setup && make evaluate` reproduces the headline table |

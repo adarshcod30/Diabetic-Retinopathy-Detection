@@ -424,7 +424,7 @@ AI?" — the number a health administrator would actually use.
 
 - [x] ONNX export; verify parity with PyTorch outputs
 - [x] FastAPI service (`amd64 + arm64` containerisation **explicitly descoped**, see below)
-- [ ] Gradio demo on HuggingFace Spaces — **blocked**, see below
+- [x] Gradio demo on HuggingFace Spaces
 - [x] Weights on HF Hub / GitHub Releases with **research-use-only** licence
 - [x] **Model card**: intended use, training populations, measured performance *with* subgroup breakdown,
       known failure modes, "not a medical device"
@@ -452,12 +452,32 @@ AI?" — the number a health administrator would actually use.
 > safety rules around publishing new public content under someone's identity -- given, then acted
 > on, in the same session.
 >
-> **The HF Spaces demo is blocked, not skipped**: `app.py` is written and tested locally (fetches
-> the checkpoint from the HF Hub model repo via `hf_hub_download`, builds the Gradio interface
-> correctly) -- but creating the actual Space failed with HTTP 402: HuggingFace now requires a PRO
-> subscription to host a Gradio Space (only static Spaces are free). Subscribing the account to a
-> paid plan is a financial decision that needed asking about separately from "publish this," and
-> was not assumed. Run the demo locally instead: `make demo`.
+> **The HF Spaces demo is live**: [huggingface.co/spaces/adarshcod30/drdetect-dr-screening](https://huggingface.co/spaces/adarshcod30/drdetect-dr-screening).
+> The first attempt hit HTTP 402 (HuggingFace requires a PRO subscription for the *default*
+> CPU-basic tier on a free account) -- the user corrected this: free accounts can still create
+> Gradio Spaces on HF's shared **ZeroGPU** hardware tier, which just needed `space_hardware`
+> passed explicitly to `create_repo` rather than trusting the platform default. Getting from
+> "created" to "actually serving requests" needed three more real, one-at-a-time diagnosed fixes
+> (each found from that Space's own runtime error, not guessed): `import spaces` early (its
+> absence silently stopped the app shortly after a clean startup); a dummy, never-called
+> `@spaces.GPU`-decorated function (ZeroGPU's own startup check requires at least one to exist,
+> whether or not it is used -- this project's model is CPU-only throughout, by design); and
+> forcing `device="cpu"` explicitly in `drdetect.serve.demo.build_interface` (its own mps/cuda/cpu
+> auto-detection picked "cuda" because ZeroGPU makes `torch.cuda.is_available()` report `True`
+> even outside an actual GPU grant, crashing the instant a tensor touched it).
+>
+> **Deploying it also surfaced one genuine bug in this project's own code**, not a Space-specific
+> issue: Grad-CAM's `ClassifierOutputTarget` indexes directly into the model's raw output, which
+> equals the decoded grade only for 5-way heads (ce/distance_ce) -- the released regression-loss
+> model has a single-output head, so the identical code crashed the first time a real request
+> predicted a non-zero grade. This had gone undetected through every prior test and manual check
+> in this project because every one of them used `loss_name="ce"`; pointing the released model at
+> regression loss for Phase 8, then a live deployment actually exercising it end to end, is what
+> finally exercised the path. Fixed in `run_pipeline` (clamp the CAM target to
+> `min(grade, outputs_for_loss(loss_name) - 1)`) and covered by a new parametrized test across all
+> four loss heads plus a deterministic unit test of the clamp itself
+> (`tests/integration/test_serve_pipeline.py`) -- verified directly that reverting the fix
+> reproduces the exact original crash before committing it.
 
 ---
 
