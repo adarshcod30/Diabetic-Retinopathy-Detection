@@ -128,7 +128,17 @@ def run_pipeline(
         class_probs = probs
         confidence = float(probs[grade])
 
-    cam = generate_cam(model, tensor, target_class=grade)
+    # Grad-CAM indexes directly into the model's raw output (pytorch_grad_cam's
+    # ClassifierOutputTarget does `output[target_class]`), which only equals
+    # `grade` for the 5-way heads (ce/distance_ce). A regression head has a
+    # single output (outputs_for_loss("regression") == 1) -- passing grade=2
+    # there indexes position 2 of a 1-element tensor and crashes
+    # (IndexError inside pytorch_grad_cam, surfacing as an UnboundLocalError
+    # in generate_cam). Clamping to the head's actual output count fixes every
+    # loss: a no-op for ce/distance_ce, and the only valid (and semantically
+    # correct -- there is only one score to explain) choice for regression.
+    cam_target = min(grade, outputs_for_loss(loss_name) - 1)
+    cam = generate_cam(model, tensor, target_class=cam_target)
     overlay = overlay_cam(pre, cam)
 
     return PredictionResult(

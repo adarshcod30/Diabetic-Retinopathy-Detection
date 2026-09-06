@@ -12,7 +12,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import torch
 
+from drdetect.explain.gradcam import generate_cam
+from drdetect.grading.losses import outputs_for_loss
 from drdetect.grading.model import build_model
 from drdetect.serve.pipeline import run_pipeline
 from drdetect.serve.report import build_report_pdf
@@ -79,3 +82,47 @@ def test_report_pdf_written_for_rejected_image(tmp_path: Path, untrained_model):
     out = build_report_pdf(result, "synthetic.png", tmp_path / "reject.pdf")
     assert out.exists()
     assert out.read_bytes()[:5] == b"%PDF-"
+
+
+class TestCamTargetIndexAcrossLossHeads:
+    """Regression test for a real bug found deploying the released
+    regression-loss checkpoint (docs/22): Grad-CAM's `ClassifierOutputTarget`
+    indexes directly into the model's raw output. A CE/distance_ce head has 5
+    outputs, so `target_class=grade` (0-4) is always valid -- but a
+    regression head has exactly 1 output (`outputs_for_loss("regression")`),
+    so the SAME code indexed position 2 of a 1-element tensor the moment the
+    model predicted grade 2, crashing with an IndexError inside
+    pytorch_grad_cam that surfaced as an UnboundLocalError in generate_cam.
+    Every test in this file above used loss_name="ce" exclusively, which is
+    exactly how this went undetected until a live deployment hit a real
+    non-zero-grade image."""
+
+    @pytest.mark.parametrize("loss_name", ["ce", "corn", "regression", "distance_ce"])
+    def test_run_pipeline_does_not_crash_for_any_loss_head(self, textured_fundus, loss_name):
+        model = build_model(
+            "efficientnet_b0",
+            num_outputs=outputs_for_loss(loss_name),
+            pretrained=False,
+            freeze_bn=True,
+        )
+        result = run_pipeline(textured_fundus, model, loss_name=loss_name, size=224)
+        assert result.grade in {0, 1, 2, 3, 4}
+        assert result.cam_overlay is not None
+        assert result.cam_overlay.shape == (224, 224, 3)
+
+    def test_regression_head_always_clamps_to_its_only_output(self):
+        """The exact scenario that crashed: a 1-output head asked to explain
+        a non-zero grade. Deterministic (no randomness), unlike the
+        pipeline-level test above, which depends on what an untrained model
+        happens to predict."""
+        model = build_model(
+            "efficientnet_b0",
+            num_outputs=outputs_for_loss("regression"),
+            pretrained=False,
+            freeze_bn=True,
+        )
+        tensor = torch.randn(1, 3, 224, 224)
+        for target_grade in range(5):  # every possible decoded grade, 0-4
+            cam_target = min(target_grade, outputs_for_loss("regression") - 1)
+            assert cam_target == 0  # the only valid index into a 1-output head
+            generate_cam(model, tensor, target_class=cam_target)  # must not raise

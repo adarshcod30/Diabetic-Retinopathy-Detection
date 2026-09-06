@@ -52,15 +52,23 @@ def build_interface(
     backbone: str = "efficientnet_b0",
     loss_name: str = "ce",
     size: int = 512,
+    device: str | None = None,
 ):
+    """`device=None` (default) auto-detects mps/cuda/cpu, the right choice for
+    local development. Pass an explicit `device` to override that -- needed
+    on HF Spaces' free ZeroGPU tier, where `torch.cuda.is_available()`
+    reports True outside an actual `@spaces.GPU` grant, so auto-detection
+    would pick "cuda" and crash the moment a tensor touches it (see app.py).
+    """
     import gradio as gr
     import torch
 
-    device = (
-        "mps"
-        if torch.backends.mps.is_available()
-        else ("cuda" if torch.cuda.is_available() else "cpu")
-    )
+    if device is None:
+        device = (
+            "mps"
+            if torch.backends.mps.is_available()
+            else ("cuda" if torch.cuda.is_available() else "cpu")
+        )
     model = load_grader(checkpoint, backbone=backbone, loss_name=loss_name, device=device)
     temperature = load_temperature(checkpoint)
 
