@@ -285,7 +285,7 @@ significant McNemar p-value.
 - [x] Grad-CAM, Grad-CAM++, Score-CAM, Eigen-CAM side by side
 - [x] **Adebayo sanity checks**: model-randomisation and data-randomisation tests. Report which methods
       pass. *A negative result is a real result* — most DR papers never run this.
-- [ ] **Quantified localisation vs IDRiD masks**: pointing game accuracy, CAM–lesion IoU, per-lesion-type
+- [x] **Quantified localisation vs IDRiD masks**: pointing game accuracy, CAM–lesion IoU, per-lesion-type
 - [ ] Lesion-overlay rendering (outlines beat blobs for clinical legibility)
 - [ ] ICDR evidence table → templated natural-language rationale
 - [ ] Final PDF report design
@@ -301,9 +301,20 @@ IoU). This is the most novel artefact in the project.
 > of the network is randomised; plain Grad-CAM — already the Phase 2 default — passes cleanly on
 > both checks. Score-CAM's sanity-check behaviour is untested (measured ~15 min/computation on
 > CPU makes the full cascade impractical here); it was separately confirmed to run correctly after
-> a target-layer bug fix. The IoU/pointing-game and 30-second timing items remain open: IDRiD
-> landed too recently in this session for a lesion-mask loader to exist yet, and the timing study
-> needs a human reviewer this session cannot supply.
+> a target-layer bug fix.
+> **The IoU/pointing-game item is now done** (see
+> [`docs/18_PHASE6_CAM_LOCALIZATION_RESULTS.md`](18_PHASE6_CAM_LOCALIZATION_RESULTS.md)), run
+> against all 81 IDRiD segmentation-subset images (Score-CAM excluded, same cost reason as above).
+> Headline finding: CAM attention never once lands on a microaneurysm across all 81 images and all
+> 3 methods tested (a sub-resolution lesion type, consistent with docs/07's own findings), but
+> scores 3.7x-53x above chance for every other lesion type -- haemorrhages, hard exudates, soft
+> exudates, and the optic disc. A second finding worth its own attention: Eigen-CAM, which
+> *failed* the model-randomisation sanity check above, still posts the *highest* optic-disc
+> pointing-game score of the three methods tested (18.0x chance) -- concrete evidence that a
+> locally-plausible-looking heatmap is not a substitute for the sanity check, since a method that
+> never reads the classifier's weights can still land on a generically-salient structure by luck
+> of what fundus photos look like, independent of whether the model is any good.
+> The 30-second timing item remains open — it needs a human reviewer this project cannot supply.
 
 ---
 

@@ -536,6 +536,30 @@ reviewer to test the escalation policy against, same constraint as Phase 6's cli
 study. Full method and numbers:
 [`docs/17_PHASE5_UNCERTAINTY_RESULTS.md`](docs/17_PHASE5_UNCERTAINTY_RESULTS.md).
 
+### Phase 6 CAM localisation — attention never once finds a microaneurysm, but is 3.7×–53× above chance everywhere else
+
+| Lesion type | Chance rate | Grad-CAM | Grad-CAM++ | Eigen-CAM |
+|---|---|---|---|---|
+| Microaneurysms | 0.104% | 0.0% (0.0×) | 0.0% (0.0×) | 0.0% (0.0×) |
+| Haemorrhages | 1.025% | 3.75% (3.7×) | 3.75% (3.7×) | 3.75% (3.7×) |
+| Hard exudates | 0.900% | 16.05% (17.8×) | 14.81% (16.5×) | 14.81% (16.5×) |
+| Soft exudates | 0.378% | 20.00% (53.0×) | 20.00% (53.0×) | 20.00% (53.0×) |
+| Optic disc | 1.781% | 25.93% (14.6×) | 28.40% (15.9×) | 32.10% (18.0×) |
+
+Pointing-game accuracy (does the CAM's single peak land on the lesion) against all 81 IDRiD
+segmentation-subset images, with a chance baseline computed from each lesion type's own mean mask
+area — without it, a number like "3.75%" reads as failure, when haemorrhages only cover ~1% of
+the image, making it 3.7× better than a random guess. Microaneurysms are the one lesion type CAM
+attention never lands on, across all 81 images and all 3 methods tested — consistent with this
+project's own Phase 3 finding that they're sub-resolution (~1-3px) at the sizes grading actually
+trains at. Everything else scores well above chance. **A second, sharper finding**: Eigen-CAM
+already *failed* the model-randomisation sanity check (it's provably blind to the classifier's
+weights) — yet it posts the *highest* optic-disc score here (18.0× chance), because the optic disc
+is generically salient in almost any fundus photo, independent of whether the model learned
+anything. A pointing-game/IoU table alone would have rated Eigen-CAM the best of the three; only
+running the sanity check first shows that's backwards. Full method and both findings:
+[`docs/18_PHASE6_CAM_LOCALIZATION_RESULTS.md`](docs/18_PHASE6_CAM_LOCALIZATION_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -610,7 +634,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 14_PHASE4_SOFT_EXUDATES_RESULTS.md  # soft exudate segmentation, single split
 │   ├── 15_PHASE4_MICROANEURYSMS_RESULTS.md  # candidate+classify pipeline, classifier bottleneck
 │   ├── 16_PHASE5_FUSION_RESULTS.md  # lesion features + fusion head, exit criterion not met
-│   └── 17_PHASE5_UNCERTAINTY_RESULTS.md  # MC-dropout + human-escalation, strong result
+│   ├── 17_PHASE5_UNCERTAINTY_RESULTS.md  # MC-dropout + human-escalation, strong result
+│   └── 18_PHASE6_CAM_LOCALIZATION_RESULTS.md  # pointing-game/IoU vs IDRiD masks, chance-adjusted
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
