@@ -28,17 +28,21 @@ bench:  ## Measure real training throughput before fixing the scope
 data:  ## Download the datasets that fit locally (NOT EyePACS)
 	bash scripts/download_data.sh --datasets aptos,idrid,drive
 
-preprocess:  ## Cache APTOS at 512px (10GB -> ~200MB)
-	.venv/bin/python scripts/preprocess.py --dataset aptos --size 512 --pipeline bengraham
+preprocess:  ## Cache APTOS at 512px (10GB -> ~200MB), then Messidor-2 and IDRiD's locked test split
+	.venv/bin/python scripts/preprocess.py --dataset aptos --size 512
+	.venv/bin/python scripts/preprocess.py --dataset messidor2 --size 512
+	.venv/bin/python scripts/preprocess.py --dataset idrid --idrid-split test --size 512
 
-train:  ## Run a training experiment (override with EXP=...)
-	.venv/bin/python scripts/train.py experiment=$(or $(EXP),grading_baseline)
+train:  ## Run a training experiment (override any flag with ARGS="--size 384 --loss corn")
+	.venv/bin/python scripts/train.py $(ARGS)
 
-evaluate:  ## Evaluate on the locked external test set
-	.venv/bin/python scripts/evaluate.py --split external_test --bootstrap 2000
+evaluate:  ## Reproduce the headline table on the locked external test set (Messidor-2 + IDRiD)
+	.venv/bin/python scripts/evaluate_external.py \
+		--checkpoint $(or $(CHECKPOINT),models/checkpoints/cv_baseline_fold1/best.ckpt) \
+		--bootstrap 2000 --i-understand-this-runs-once
 
-demo:  ## Launch the Gradio demo
-	.venv/bin/python -m drdetect.serve.demo
+demo:  ## Launch the Gradio demo (override checkpoint with CHECKPOINT=...)
+	.venv/bin/python scripts/demo.py --checkpoint $(or $(CHECKPOINT),models/checkpoints/cv_baseline_fold1/best.ckpt)
 
 sim:  ## Run the district screening simulation
 	.venv/bin/python -m simulation.simpy.district --patients-per-year 100000
