@@ -235,8 +235,8 @@ a clinician would recognise.
 
 **Goal:** turn two models into one system that knows what it does not know.
 
-- [ ] Lesion feature extractor: MA count, HE/EX/SE area, per-quadrant distribution, distance-to-fovea
-- [ ] Fusion head: `concat(CNN embedding, lesion features)` → ordinal head
+- [x] Lesion feature extractor: MA count, HE/EX/SE area, per-quadrant distribution, distance-to-fovea
+- [x] Fusion head: `concat(CNN embedding, lesion features)` → ordinal head
 - [x] Quality gating: route Reject → recapture, Usable → flag in report *(Phase 2)*
 - [x] **Temperature scaling** on a held-out split; reliability diagram + ECE before/after
 - [ ] Uncertainty: MC-dropout or deep ensemble
@@ -246,15 +246,24 @@ a clinician would recognise.
 **Exit criterion:** ECE < 0.05 after calibration; the fusion model beats the grading-only model with a
 significant McNemar p-value.
 
-> **Partially achieved:** see [`docs/09_PHASE5_RESULTS.md`](09_PHASE5_RESULTS.md). Temperature
-> scaling is fit, wired into `scripts/predict.py`/the demo/the PDF report (a `temperature.json`
-> sidecar per checkpoint, not silently applied to checkpoints never calibrated), and validated with
-> a reliability diagram. The baseline checkpoint does NOT clear ECE < 0.05 after calibration on
-> either metric tested (0.1347 top-1, 0.0567 referable) -- a non-monotonic miscalibration curve a
-> single scalar cannot fully fix. The Result-12 1024px checkpoint does clear it on both (0.0462,
-> 0.0414), and was already better-calibrated before scaling. The fusion head, lesion features, and
-> uncertainty estimation remain open -- they depend on Phase 4 segmentation, which has raw data but
-> no model yet.
+> **Partially achieved:** see [`docs/09_PHASE5_RESULTS.md`](09_PHASE5_RESULTS.md) (calibration) and
+> [`docs/16_PHASE5_FUSION_RESULTS.md`](16_PHASE5_FUSION_RESULTS.md) (lesion features + fusion head).
+> Temperature scaling is fit, wired into `scripts/predict.py`/the demo/the PDF report (a
+> `temperature.json` sidecar per checkpoint, not silently applied to checkpoints never calibrated),
+> and validated with a reliability diagram. The baseline checkpoint does NOT clear ECE < 0.05 after
+> calibration on either metric tested (0.1347 top-1, 0.0567 referable) -- a non-monotonic
+> miscalibration curve a single scalar cannot fully fix. The Result-12 1024px checkpoint does clear
+> it on both (0.0462, 0.0414), and was already better-calibrated before scaling.
+> **The fusion head's own exit criterion is NOT met**: on 750 APTOS images (lesion features
+> extracted by running Phase 4's IDRiD-trained models on APTOS, since APTOS has no lesion ground
+> truth of its own -- checked, not eliminated, via a cross-dataset sanity check first), fusion
+> scored QWK 0.9362 vs. grading-alone's 0.9556 on the same 150-image val split, and the McNemar
+> test on paired correctness is not significant (p=0.754) -- if anything the discordant pairs
+> lean toward the baseline. A first honest negative result, not yet root-caused (candidates:
+> small sample size, noisy cross-dataset lesion features -- especially the microaneurysm count,
+> whose own classifier already under-generalises on IDRiD itself, see docs/15 -- or redundancy
+> with what the CNN embedding already encodes). Uncertainty estimation, operating-point selection,
+> and the human-escalation policy remain open.
 
 ---
 

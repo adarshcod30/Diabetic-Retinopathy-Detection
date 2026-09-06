@@ -493,6 +493,27 @@ memory to a 39GB peak and aborted the process before being fixed to an 820MB pea
 Full method, both bugs, and the honest classifier numbers:
 [`docs/15_PHASE4_MICROANEURYSMS_RESULTS.md`](docs/15_PHASE4_MICROANEURYSMS_RESULTS.md).
 
+### Phase 5 fusion head — an honest negative result: fusion doesn't beat grading alone (yet)
+
+| | Grading-alone (baseline) | Fusion head |
+|---|---|---|
+| Val QWK (150 img) | 0.9556 | 0.9362 |
+| Val accuracy | 0.9067 | 0.8933 |
+
+McNemar on paired correctness: 6 images baseline got right that fusion missed, 4 the other way,
+p=0.754 — not significant, and if anything the balance favours the baseline. Phase 4 made this
+item possible for the first time: `concat(1280-d CNN embedding, 9 lesion features)` through a
+small MLP trained with this project's existing rank-consistent ordinal loss (CORN). The lesion
+features come from running Phase 4's IDRiD-trained models on 750 APTOS images (150/grade) — APTOS
+has no lesion ground truth of its own, so every feature here is a genuine, checked-but-unproven
+cross-dataset hypothesis (a cheap sanity check first: the hard-exudate model's predicted
+probability rose with DR grade on APTOS despite never training on it). Plausible reasons fusion
+didn't help: a small sample (only 10 discordant pairs to test on), noisy lesion features
+(particularly the microaneurysm count — that classifier's own docs/15 result already shows it
+under-generalises even on IDRiD), or redundancy with what the CNN embedding already captures.
+None of these is confirmed; closing this gap is next. Full method and honest numbers:
+[`docs/16_PHASE5_FUSION_RESULTS.md`](docs/16_PHASE5_FUSION_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -565,7 +586,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 12_PHASE4_LOCALIZATION_RESULTS.md  # OD/fovea heatmap regression, target cleared
 │   ├── 13_PHASE4_HAEMORRHAGES_RESULTS.md  # haemorrhage segmentation, large val-test gap
 │   ├── 14_PHASE4_SOFT_EXUDATES_RESULTS.md  # soft exudate segmentation, single split
-│   └── 15_PHASE4_MICROANEURYSMS_RESULTS.md  # candidate+classify pipeline, classifier bottleneck
+│   ├── 15_PHASE4_MICROANEURYSMS_RESULTS.md  # candidate+classify pipeline, classifier bottleneck
+│   └── 16_PHASE5_FUSION_RESULTS.md  # lesion features + fusion head, exit criterion not met
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
@@ -573,6 +595,7 @@ Diabetic-Retinopathy-Detection/
 │   ├── enhance/              # Stage 2 — Ben Graham, CLAHE, illumination
 │   ├── segmentation/         # Stage 3 — vessels, OD/fovea, lesions
 │   ├── grading/              # Stage 4 — backbones, ordinal heads, fusion
+│   ├── fusion/                # Stage 5 — lesion feature extraction, CNN embedding, fusion head
 │   ├── calibration/          # Stage 5 — temperature scaling, thresholds, uncertainty
 │   ├── explain/              # Stage 6 — CAMs, sanity checks, localisation metrics, reports
 │   ├── eval/                 # metrics, bootstrap CI, DeLong, McNemar
