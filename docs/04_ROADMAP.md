@@ -163,7 +163,7 @@ your target). Referable-DR sensitivity ≥ 90 % at the chosen operating point.
 **Goal:** the lesion evidence that powers both fusion and explanation.
 
 - [ ] **Vessels** — U-Net on DRIVE, 48×48 patches. Target Dice ≈ 0.80+, AUC ≈ 0.97+
-- [ ] **OD & fovea** — heatmap regression on IDRiD. Target: mean localisation error < 0.5 × OD diameter
+- [x] **OD & fovea** — heatmap regression on IDRiD. Target: mean localisation error < 0.5 × OD diameter
 - [ ] **Quadrant mapping** from OD–fovea axis (needed for ICDR's quadrant-based rules)
 - [ ] **Lesions** — DeepLabv3+/U-Net on IDRiD (only **81 masked images** → 5-fold CV, heavy aug,
       patch sampling at full resolution)
@@ -179,20 +179,25 @@ a clinician would recognise.
 > **Scope honesty:** neovascularisation has no public pixel masks. Detect PDR at image level; document
 > NV segmentation as future work. Do not fabricate it.
 
-> **Partially achieved:** see [`docs/10_PHASE4_RESULTS.md`](10_PHASE4_RESULTS.md) (hard exudates) and
-> [`docs/11_PHASE4_VESSELS_RESULTS.md`](11_PHASE4_VESSELS_RESULTS.md) (vessels). Hard exudates
-> trained and scored end to end on IDRiD's official split, with the 5-fold CV this item specifies:
-> test-set pixel AUPRC **0.8500 ± 0.0292** across 5 folds (tiled full-resolution inference, 27
-> held-out test images, metrics pooled across pixels). Dice is reported at a threshold tuned per
-> fold on that fold's own validation split, not a hardcoded 0.5 — the fixed threshold's fold-to-fold
-> spread (std 0.080) was over 5x the tuned threshold's (std 0.015), on the identical checkpoints.
-> Vessels: 5-fold CV on DRIVE's 20 publicly-labelled images (its official test split ships no
-> vessel ground truth at all), DeepLabV3+/resnet34 on full images rather than U-Net on patches.
-> AUROC lands close to target and is very stable (**0.9416 ± 0.0035** vs. the 0.97+ target); Dice
-> does not (**0.662 ± 0.023** vs. 0.80+) — checked directly, only ~3.5 points of that gap is a
-> fixed-threshold artifact, so this is mostly a real capacity/data-scale shortfall on fine
-> vessel-branch boundaries, not a scoring artifact. OD/fovea, quadrant mapping, haemorrhages, soft
-> exudates, and microaneurysms remain entirely unstarted.
+> **Partially achieved:** see [`docs/10_PHASE4_RESULTS.md`](10_PHASE4_RESULTS.md) (hard exudates),
+> [`docs/11_PHASE4_VESSELS_RESULTS.md`](11_PHASE4_VESSELS_RESULTS.md) (vessels), and
+> [`docs/12_PHASE4_LOCALIZATION_RESULTS.md`](12_PHASE4_LOCALIZATION_RESULTS.md) (OD/fovea). Hard
+> exudates trained and scored end to end on IDRiD's official split, with the 5-fold CV this item
+> specifies: test-set pixel AUPRC **0.8500 ± 0.0292** across 5 folds (tiled full-resolution
+> inference, 27 held-out test images, metrics pooled across pixels). Dice is reported at a
+> threshold tuned per fold on that fold's own validation split, not a hardcoded 0.5 — the fixed
+> threshold's fold-to-fold spread (std 0.080) was over 5x the tuned threshold's (std 0.015), on the
+> identical checkpoints. Vessels: 5-fold CV on DRIVE's 20 publicly-labelled images (its official
+> test split ships no vessel ground truth at all), DeepLabV3+/resnet34 on full images rather than
+> U-Net on patches. AUROC lands close to target and is very stable (**0.9416 ± 0.0035** vs. the
+> 0.97+ target); Dice does not (**0.662 ± 0.023** vs. 0.80+) — checked directly, only ~3.5 points
+> of that gap is a fixed-threshold artifact, so this is mostly a real capacity/data-scale shortfall
+> on fine vessel-branch boundaries, not a scoring artifact. **OD/fovea localisation clears its
+> target outright**: heatmap regression (DeepLabV3+/resnet34, 2-channel output) on IDRiD's official
+> 413/103 split scores combined mean error **0.075 OD-diameters** on the 103 held-out test images
+> (target < 0.5) — 103/103 images clear the target on OD alone, 100/103 on fovea, with three real
+> fovea-specific outliers (worst: 1.67 diameters on IDRiD_065) where OD localisation stays accurate
+> regardless. Quadrant mapping, haemorrhages, soft exudates, and microaneurysms remain unstarted.
 
 ---
 

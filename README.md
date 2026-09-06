@@ -402,6 +402,26 @@ shortfall on fine, thin vessel-branch boundaries specifically, where Dice penali
 misalignments far more than AUROC's ranking-based formulation does. Full method and the diagnostic
 that ruled out the threshold explanation: [`docs/11_PHASE4_VESSELS_RESULTS.md`](docs/11_PHASE4_VESSELS_RESULTS.md).
 
+### Phase 4 OD/fovea localisation — target cleared: 0.075 mean error vs. a 0.5 target
+
+| | OD error (mean) | Fovea error (mean) | Combined mean | Images clearing target |
+|---|---|---|---|---|
+| Internal val (62 img) | — | — | 0.0587 | — |
+| **Official test (103 img, held out)** | **0.0463** | **0.1029** | **0.0746** | 103/103 OD · 100/103 fovea |
+
+The first Phase 4 sub-item with an unambiguous numeric target that clears it outright, by roughly
+6.7x. Heatmap regression (DeepLabV3+/resnet34, 2-channel output, one Gaussian-target channel each
+for optic disc and fovea) on IDRiD's official 413-train/103-test localisation split — the largest,
+cleanest-labelled IDRiD subset used in this project (516 images vs. hard exudates' 81). Since
+per-image OD diameter isn't available for this task (only the disjoint 81-image segmentation subset
+ships OD masks, under different filename numbering that can't be joined to this one), the roadmap's
+"0.5x OD diameter" unit uses the mean diameter measured directly from those 54 real masks (527.7px
+at full resolution) as a fixed proxy. OD localisation is reliable on every single test image; the
+three fovea failures (worst: IDRiD_065 at 1.665 diameters) all keep excellent OD accuracy alongside
+them, pointing at a fovea-specific weakness — plausibly its low, boundary-less contrast next to the
+optic disc's sharp edge — rather than a general localisation problem. Full method and the outlier
+analysis: [`docs/12_PHASE4_LOCALIZATION_RESULTS.md`](docs/12_PHASE4_LOCALIZATION_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -470,7 +490,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 08_PHASE6_RESULTS.md      # Grad-CAM/++/Score-CAM/Eigen-CAM sanity checks
 │   ├── 09_PHASE5_RESULTS.md      # temperature scaling, ECE before/after
 │   ├── 10_PHASE4_RESULTS.md      # hard-exudate segmentation, IDRiD 5-fold CV
-│   └── 11_PHASE4_VESSELS_RESULTS.md  # vessel segmentation, DRIVE 5-fold CV
+│   ├── 11_PHASE4_VESSELS_RESULTS.md  # vessel segmentation, DRIVE 5-fold CV
+│   └── 12_PHASE4_LOCALIZATION_RESULTS.md  # OD/fovea heatmap regression, target cleared
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
