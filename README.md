@@ -594,6 +594,31 @@ setting frees an extra ~2,236 grader-hours/year but more than doubles the wrong-
 (0.85%→1.90% of auto-cleared cases, i.e. ~489→1,733 patients/year with true grade >0 told "no
 follow-up needed"). Full method and every scenario: [`docs/20_PHASE7_SIMULATION_RESULTS.md`](docs/20_PHASE7_SIMULATION_RESULTS.md).
 
+### Phase 8 locked external validation — run once, and the drop was real
+
+The result the whole project was built to produce, and the only evaluation ever run against
+Messidor-2 and IDRiD's grading test split (1,847 images total). Two finalists went in — the
+baseline and a regression-loss variant that internal validation couldn't cleanly decide between
+(see the Phase 3 ablation section above) — precisely so this external look could be the
+tie-breaker instead of another round of internal tuning. **It was**: referable-DR AUC 0.9242
+(regression) vs. 0.8878 (baseline), DeLong p=6.1×10⁻¹⁰ — decisive, and in the opposite direction
+from what the internal exact-grade comparison would have predicted. **Regression loss is the
+model this project would release.**
+
+The external drop itself is larger than this project's own pre-registered expectation: both
+models land at 41–44% referable sensitivity externally, far under the ≥90% target and every
+published comparator, even though specificity (97%+) and AUC (0.888–0.924, comparable to a cited
+Gulshan-reproduction's 0.853 Messidor-2 AUC) held up much better. Checking the actual score
+distributions — not just the pass/fail count — shows why: the median score among truly-referable
+external images sits roughly an order of magnitude below the threshold frozen from APTOS internal
+validation. That is a **calibration failure, not primarily a discrimination failure** — and the
+threshold was not re-tuned after seeing this, since doing so would be exactly the "chose the
+threshold on test" cheat this project's own analysis document warns against. A real deployment on
+a new population needs its own calibration set, not this project's frozen cut-point. Full method,
+every number, the failure-mode gallery (both models' worst errors independently misjudge the same
+one image as severe disease), and the published-benchmark comparison table:
+[`docs/22_PHASE8_VALIDATION_RESULTS.md`](docs/22_PHASE8_VALIDATION_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -615,10 +640,16 @@ follow-up needed"). Full method and every scenario: [`docs/20_PHASE7_SIMULATION_
 | [Abràmoff 2018 (npj Digit Med)](https://www.nature.com/articles/s41746-018-0040-6) | mtmDR, **prospective primary care** | 87.2 % | 90.7 % | — |
 | [Gulshan 2019 (JAMA Ophthalmol)](https://research.google/pubs/performance-of-a-deep-learning-algorithm-vs-manual-grading-for-detecting-diabetic-retinopathy-in-india/) | Referable DR, **Aravind, India** | 88.9 % | 92.2 % | 0.963 |
 | same | Referable DR, **Sankara Nethralaya** | 92.1 % | 95.2 % | 0.980 |
+| *Gulshan reproduction (cited)* | *Referable DR, Messidor-2* | — | — | *0.853* |
+| **this project** | **Referable DR, Messidor-2 + IDRiD, external, once** | **41.5–44.1 %** | **97.0–97.6 %** | **0.888–0.924** |
 
 > **A note on honesty:** a faithful reproduction of Gulshan 2016 scored AUC 0.951 on EyePACS but only
 > **0.853 on Messidor-2**. External validation drops are the norm, not a failure. This project plans
 > for that drop, reports it, and analyses the domain shift rather than re-tuning until it disappears.
+> **The drop this project actually measured was larger than that plan anticipated** — specificity
+> and AUC land in a defensible range next to the literature, but sensitivity does not, and
+> [`docs/22_PHASE8_VALIDATION_RESULTS.md`](docs/22_PHASE8_VALIDATION_RESULTS.md) diagnoses why
+> (a calibration failure, not a pure discrimination failure) rather than only reporting the number.
 
 The planned **ablation** — eleven configurations, one factor added per row, evaluated on the locked
 test set with significance tests — is specified in
@@ -669,7 +700,9 @@ Diabetic-Retinopathy-Detection/
 │   ├── 17_PHASE5_UNCERTAINTY_RESULTS.md  # MC-dropout + human-escalation, strong result
 │   ├── 18_PHASE6_CAM_LOCALIZATION_RESULTS.md  # pointing-game/IoU vs IDRiD masks, chance-adjusted
 │   ├── 19_PHASE6_REPORT_RESULTS.md  # lesion overlays, ICDR evidence, redesigned PDF report
-│   └── 20_PHASE7_SIMULATION_RESULTS.md  # SimPy district model, graders-needed chart
+│   ├── 20_PHASE7_SIMULATION_RESULTS.md  # SimPy district model, graders-needed chart
+│   ├── 21_PHASE8_ABLATION_RESULTS.md  # resolution/CLAHE/ordinal-loss rows, paired tests
+│   └── 22_PHASE8_VALIDATION_RESULTS.md  # the locked external evaluation, run once
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests

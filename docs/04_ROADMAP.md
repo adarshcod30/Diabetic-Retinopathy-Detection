@@ -366,12 +366,12 @@ AI?" — the number a health administrator would actually use.
 ## Phase 8 — Validation & the ablation (Weeks 18–19)
 
 - [x] Run the **full ablation grid** (§7 of the analysis) — 11 configurations, one factor per row
-- [ ] Evaluate on the **locked** Messidor-2 / IDRiD test set. **Once.**
-- [ ] Bootstrap 95 % CIs (2,000 resamples) on every metric
-- [ ] DeLong for AUC comparisons; McNemar for paired sens/spec
-- [ ] **Subgroup analysis** by quality tier (and camera, if metadata allows)
-- [ ] Comparison table against Gulshan 2016/2019, Ting 2017, IDx-DR, Dual-SwinOrd
-- [ ] Failure-mode gallery: 20 worst errors, categorised — this is where the interesting findings hide
+- [x] Evaluate on the **locked** Messidor-2 / IDRiD test set. **Once.**
+- [x] Bootstrap 95 % CIs (2,000 resamples) on every metric
+- [x] DeLong for AUC comparisons; McNemar for paired sens/spec
+- [x] **Subgroup analysis** by quality tier (and camera, if metadata allows)
+- [x] Comparison table against Gulshan 2016/2019, Ting 2017, IDx-DR, Dual-SwinOrd
+- [x] Failure-mode gallery: 20 worst errors, categorised — this is where the interesting findings hide
 
 **Exit criterion:** a results section you would be willing to defend in a viva.
 
@@ -397,6 +397,26 @@ AI?" — the number a health administrator would actually use.
 > finalists into the external evaluation, since internal validation doesn't cleanly resolve which
 > is better and referable-DR AUC — the actual operational decision — does not significantly
 > distinguish them (DeLong p=0.097).
+
+> **Phase 8 is now DONE.** See [`docs/22_PHASE8_VALIDATION_RESULTS.md`](22_PHASE8_VALIDATION_RESULTS.md)
+> for the locked external evaluation, run exactly once against both finalists (1,847 images,
+> Messidor-2 + IDRiD's official grading-test split). **Regression loss wins decisively**: referable
+> AUC 0.9242 vs. baseline's 0.8878, DeLong p=6.1e-10 — resolving the ambiguity docs/21 could not
+> settle on internal data alone, and in the *opposite* direction from what regression's weaker
+> internal exact-grade correctness would have predicted. QWK confirms it (0.6995 vs. 0.6408).
+> **The external drop is real and larger than this project's own pre-registered expectation**:
+> both models land at 41-44% referable sensitivity, far under the >=90% target and every published
+> comparator, while specificity (97%+) and AUC (0.888-0.924, in the same range as the cited
+> Gulshan-reproduction's 0.853 external AUC) hold up much better. Diagnosed, not just reported: the
+> median referable_score among truly-referable EXTERNAL images sits an order of magnitude below the
+> threshold frozen from APTOS internal validation — this is primarily a **threshold-transfer /
+> calibration failure**, not a pure discrimination failure, since AUC survived reasonably. The
+> threshold was **not** re-tuned after seeing this — doing so would be exactly the "chose the
+> threshold on test" cheat this document's own §8.2 warns against. Failure gallery: the single
+> worst errors for BOTH models are confidently-wrong grade-0-to-grade-4 calls (the opposite
+> direction from the sensitivity problem), including one specific image both independently-trained
+> models misjudge identically. Locked test set is now spent — no future phase may use it for any
+> selection or tuning decision.
 
 ---
 
