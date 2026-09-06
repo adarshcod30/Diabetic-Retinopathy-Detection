@@ -240,7 +240,10 @@ a clinician would recognise.
 - [x] Quality gating: route Reject → recapture, Usable → flag in report *(Phase 2)*
 - [x] **Temperature scaling** on a held-out split; reliability diagram + ECE before/after
 - [ ] Uncertainty: MC-dropout or deep ensemble
-- [ ] **Operating point selection on validation only**, then frozen
+- [x] **Operating point selection on validation only**, then frozen *(scripts/evaluate.py,
+      since Phase 1: `choose_threshold_for_sensitivity(...)` on the selection split,
+      `evaluate_at_threshold(...)` on the evaluation split -- used throughout Phase 3's own
+      results, docs/07)*
 - [ ] Human-escalation policy: route bottom-*k* % confidence to a grader; measure the AI+human system
 
 **Exit criterion:** ECE < 0.05 after calibration; the fusion model beats the grading-only model with a
@@ -262,8 +265,10 @@ significant McNemar p-value.
 > lean toward the baseline. A first honest negative result, not yet root-caused (candidates:
 > small sample size, noisy cross-dataset lesion features -- especially the microaneurysm count,
 > whose own classifier already under-generalises on IDRiD itself, see docs/15 -- or redundancy
-> with what the CNN embedding already encodes). Uncertainty estimation, operating-point selection,
-> and the human-escalation policy remain open.
+> with what the CNN embedding already encodes). **Operating-point selection was already built** in
+> `scripts/evaluate.py` since Phase 1 and used throughout Phase 3 -- not a Phase 5 gap, just not
+> previously cross-referenced from this section. Uncertainty estimation and the human-escalation
+> policy remain open.
 
 ---
 

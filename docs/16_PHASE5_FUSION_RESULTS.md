@@ -15,8 +15,10 @@ over APTOS images, since APTOS carries DR grades but no lesion ground truth of i
 unchanged -- it is already loss-agnostic, so the only new model-specific code is the small MLP
 itself.
 
-Not built: uncertainty estimation (MC-dropout/ensemble), the frozen operating-point selection, and
-the human-escalation policy -- next in the roadmap's own order for Phase 5's remaining items.
+Not built: uncertainty estimation (MC-dropout/ensemble) and the human-escalation policy -- next in
+the roadmap's own order for Phase 5's remaining items. The frozen operating-point selection the
+roadmap also lists was already built in `scripts/evaluate.py` back in Phase 1 (not a Phase 5 gap;
+it just hadn't been cross-referenced from this section of the roadmap before).
 
 ## Two deliberate scope decisions, stated plainly
 
@@ -107,8 +109,8 @@ here given how much of Phase 5/6 remains.
   criterion is unmet, but nothing here rules out fusion helping with more data, cleaner lesion
   features (particularly a better microaneurysm classifier, docs/15's own stated next step), or a
   different fusion architecture.
-- **Uncertainty estimation, operating-point selection, and the human-escalation policy** remain
-  unbuilt -- next in the roadmap's own order.
+- **Uncertainty estimation and the human-escalation policy** remain unbuilt -- next in the
+  roadmap's own order. (Operating-point selection is not on this list -- see above.)
 - **A larger APTOS subset** than 750 images was not attempted this pass, given the ~46 minutes the
   750-image extraction already took (5 models per image) and the amount of Phase 5/6 work still
   queued behind this item.
