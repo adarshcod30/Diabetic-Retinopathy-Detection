@@ -365,7 +365,7 @@ AI?" — the number a health administrator would actually use.
 
 ## Phase 8 — Validation & the ablation (Weeks 18–19)
 
-- [ ] Run the **full ablation grid** (§7 of the analysis) — 11 configurations, one factor per row
+- [x] Run the **full ablation grid** (§7 of the analysis) — 11 configurations, one factor per row
 - [ ] Evaluate on the **locked** Messidor-2 / IDRiD test set. **Once.**
 - [ ] Bootstrap 95 % CIs (2,000 resamples) on every metric
 - [ ] DeLong for AUC comparisons; McNemar for paired sens/spec
@@ -377,6 +377,26 @@ AI?" — the number a health administrator would actually use.
 
 > **Expect the external drop.** A faithful Gulshan reproduction fell from AUC 0.951 (EyePACS) to 0.853
 > (Messidor-2). If you drop similarly, analyse the domain shift; do not hide it and do not re-tune.
+
+> **Ablation grid done, external evaluation not yet run:** see
+> [`docs/21_PHASE8_ABLATION_RESULTS.md`](21_PHASE8_ABLATION_RESULTS.md). Resolves a real tension in
+> this document's own §7 vs. §8.2 (§7 says the ablation table is "evaluated on the locked external
+> test set"; §8.2 says "touch it exactly once" — 11 configurations against the locked set is not
+> once) by running every comparison on internal APTOS validation, exactly like the baseline and
+> every Phase 3 config already were, and reserving the locked set for a single frozen-prediction
+> evaluation of whichever model(s) survive that comparison. Four new single-split configs complete
+> the grid's remaining rows: 224px CE (QWK 0.8844, the resolution floor doesn't help either),
+> +CLAHE (QWK 0.8984 looks like a small win but a paired McNemar test shows no real difference,
+> p=0.899 — exactly the "point estimate vs. paired test" trap this project's own culture exists to
+> catch), +regression loss (QWK **0.9147**, the first config in 17 tried across this project to
+> clear 0.90 — but McNemar on exact-grade correctness significantly favours the *baseline*,
+> p=0.023, a real mechanistic trade-off: regression makes adjacent-grade errors instead of
+> occasional 2-grade jumps, trading exact-match accuracy for a better ordinal-distance profile),
+> +distance-aware CE (QWK 0.8944, looks close to baseline but McNemar shows a significant real
+> downgrade, p=0.0012). Baseline and the regression-loss model are carried forward as two
+> finalists into the external evaluation, since internal validation doesn't cleanly resolve which
+> is better and referable-DR AUC — the actual operational decision — does not significantly
+> distinguish them (DeLong p=0.097).
 
 ---
 
