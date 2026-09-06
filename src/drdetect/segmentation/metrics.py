@@ -14,7 +14,13 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["pixel_auprc", "pixel_auroc", "dice_coefficient", "best_dice_threshold"]
+__all__ = [
+    "pixel_auprc",
+    "pixel_auroc",
+    "dice_coefficient",
+    "best_dice_threshold",
+    "best_f1_threshold",
+]
 
 
 def pixel_auprc(y_true: np.ndarray, y_score: np.ndarray) -> float:
@@ -96,3 +102,30 @@ def best_dice_threshold(
         if dice > best_dice:
             best_threshold, best_dice = float(t), dice
     return best_threshold, best_dice
+
+
+def best_f1_threshold(
+    y_true: np.ndarray, y_score: np.ndarray, *, thresholds: np.ndarray | None = None
+) -> tuple[float, float]:
+    """Same grid-sweep pattern as `best_dice_threshold`, scored with F1
+    instead of Dice -- used where examples are discrete items (microaneurysm
+    *candidates*, one score each) rather than pixels, so a pixel-overlap
+    ratio doesn't apply but the precision/recall trade-off it's standing in
+    for still does. Tune on validation only, freeze, apply once to test --
+    same separation `best_dice_threshold` already documents.
+    """
+    y_true = np.asarray(y_true).ravel().astype(bool)
+    y_score = np.asarray(y_score).ravel()
+    if thresholds is None:
+        thresholds = np.linspace(0.025, 0.975, 39)
+
+    best_threshold, best_f1 = 0.5, -1.0
+    for t in thresholds:
+        pred = y_score > t
+        tp = int(np.logical_and(y_true, pred).sum())
+        fp = int(np.logical_and(~y_true, pred).sum())
+        fn = int(np.logical_and(y_true, ~pred).sum())
+        f1 = (2 * tp) / (2 * tp + fp + fn) if (2 * tp + fp + fn) > 0 else 0.0
+        if f1 > best_f1:
+            best_threshold, best_f1 = float(t), f1
+    return best_threshold, best_f1

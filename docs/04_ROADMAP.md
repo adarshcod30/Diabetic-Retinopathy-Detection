@@ -165,13 +165,13 @@ your target). Referable-DR sensitivity ≥ 90 % at the chosen operating point.
 - [ ] **Vessels** — U-Net on DRIVE, 48×48 patches. Target Dice ≈ 0.80+, AUC ≈ 0.97+
 - [x] **OD & fovea** — heatmap regression on IDRiD. Target: mean localisation error < 0.5 × OD diameter
 - [x] **Quadrant mapping** from OD–fovea axis (needed for ICDR's quadrant-based rules)
-- [ ] **Lesions** — DeepLabv3+/U-Net on IDRiD (only **81 masked images** → 5-fold CV, heavy aug,
+- [x] **Lesions** — DeepLabv3+/U-Net on IDRiD (only **81 masked images** → 5-fold CV, heavy aug,
       patch sampling at full resolution)
   - [x] Hard exudates first (easiest, highest contrast) — establishes the harness
   - [x] Haemorrhages, soft exudates
-  - [ ] **Microaneurysms last and separately**: morphological top-hat + matched filter candidate
+  - [x] **Microaneurysms last and separately**: morphological top-hat + matched filter candidate
         generation → small CNN classifier. Do *not* expect plain segmentation to work here.
-- [ ] Report **AUPRC per lesion class** (AUROC is meaningless at <0.1 % positive pixels)
+- [x] Report **AUPRC per lesion class** (AUROC is meaningless at <0.1 % positive pixels)
 
 **Exit criterion:** per-class AUPRC on IDRiD with cross-validated CIs, plus qualitative overlays that
 a clinician would recognise.
@@ -214,8 +214,20 @@ a clinician would recognise.
 > (fewest training examples) would be hard to generalise from. Threshold tuning again helps (Dice
 > 0.5546 → 0.5929). Soft exudates and everything after uses a single train/val split rather than
 > 5-fold CV, a deliberate scoping decision to manage total time across the remaining Phase 4/5/6
-> items. **Microaneurysms remains unstarted** — the roadmap's own required different method
-> (morphological candidate generation + classifier, not segmentation).
+> items. **Microaneurysms** (see
+> [`docs/15_PHASE4_MICROANEURYSMS_RESULTS.md`](15_PHASE4_MICROANEURYSMS_RESULTS.md)) closes out this
+> item's own required different method: candidate generation (top-hat + percentile threshold) finds
+> **91.7% (val) / 96.8% (test)** of true instances — a strong ceiling — but the small CNN classifier
+> that accepts/rejects candidates generalises poorly from its curated training distribution to a
+> real image's true candidate flood (7,000–40,000 candidates against 10–130 true instances per
+> image): test candidate-AUPRC **0.25**, end-to-end recall **0.28** at precision **0.36**. Two real
+> bugs were caught and fixed en route — Otsu thresholding catastrophically failing on this response
+> distribution (3/18 recall), and a whole-image-padding memory bug that drove candidate generation
+> to a 39GB peak footprint before being fixed to 820MB. A plain-segmentation baseline (same harness
+> as the other four lesion types, deliberately stopped early) scored val AUPRC 0.51 / Dice 0.24 —
+> well below hard exudates' converged numbers even mid-training, consistent with (not a rigorous
+> confirmation of) the roadmap's segmentation warning. This is Phase 4's last per-lesion item;
+> Phase 5/6 remain.
 
 ---
 

@@ -469,6 +469,30 @@ weakest signal"), though the size-vs-morphology question of why the gap isn't *l
 haemorrhages' despite less data remains unverified. Threshold tuning helps again (Dice 0.5546→0.5929).
 Full method: [`docs/14_PHASE4_SOFT_EXUDATES_RESULTS.md`](docs/14_PHASE4_SOFT_EXUDATES_RESULTS.md).
 
+### Phase 4 microaneurysms — strong candidate recall (96.8%), a classifier that doesn't generalise to it
+
+| Stage | Val | Test (27 img, held out) |
+|---|---|---|
+| Generation-stage recall (ceiling) | 0.9168 | 0.9677 |
+| Candidate-level AUPRC | — | 0.2524 |
+| End-to-end recall @ tuned threshold | — | 0.2808 |
+| End-to-end precision @ tuned threshold | — | 0.3564 |
+
+The last IDRiD lesion type, and the only one the roadmap says needs a different method: classical
+top-hat candidate generation feeding a small (~24K-param) CNN classifier, not plain segmentation.
+The generation stage clears a high bar — 96.8% of true microaneurysms on the test set get at least
+one candidate proposed. The classifier stage is the real bottleneck: trained on a curated,
+subsampled candidate pool (10-100x more negatives than positives per image), it doesn't generalise
+to a real image's true imbalance (7,000-40,000 candidates against 10-130 true instances) — training
+reported val/AUPRC 0.75, but scoring the same checkpoint against every real candidate an image
+proposes gave test AUPRC 0.17. Retraining with a much higher negative ratio (100x) closed part of
+that gap (test AUPRC 0.17→0.25) without closing all of it. Two real bugs were caught and fixed
+during development: Otsu thresholding catastrophically failing on this response distribution
+(measured 3/18 recall before the fix), and a whole-image-padding bug in patch extraction that drove
+memory to a 39GB peak and aborted the process before being fixed to an 820MB peak (~48x reduction).
+Full method, both bugs, and the honest classifier numbers:
+[`docs/15_PHASE4_MICROANEURYSMS_RESULTS.md`](docs/15_PHASE4_MICROANEURYSMS_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -540,7 +564,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 11_PHASE4_VESSELS_RESULTS.md  # vessel segmentation, DRIVE 5-fold CV
 │   ├── 12_PHASE4_LOCALIZATION_RESULTS.md  # OD/fovea heatmap regression, target cleared
 │   ├── 13_PHASE4_HAEMORRHAGES_RESULTS.md  # haemorrhage segmentation, large val-test gap
-│   └── 14_PHASE4_SOFT_EXUDATES_RESULTS.md  # soft exudate segmentation, single split
+│   ├── 14_PHASE4_SOFT_EXUDATES_RESULTS.md  # soft exudate segmentation, single split
+│   └── 15_PHASE4_MICROANEURYSMS_RESULTS.md  # candidate+classify pipeline, classifier bottleneck
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
