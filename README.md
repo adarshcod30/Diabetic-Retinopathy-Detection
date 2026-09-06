@@ -429,6 +429,29 @@ available in this project's datasets to make that mapping safely. Full method, t
 analysis, and the quadrant-mapping scope note:
 [`docs/12_PHASE4_LOCALIZATION_RESULTS.md`](docs/12_PHASE4_LOCALIZATION_RESULTS.md).
 
+### Phase 4 haemorrhages — validation looks fine (0.767 ± 0.033), the test set disagrees (0.540 ± 0.041)
+
+| Fold | Val AUPRC | Test AUPRC | Dice @ 0.5 | Dice @ tuned |
+|---|---|---|---|---|
+| 0 | 0.8112 | 0.5514 | 0.3968 | 0.5380 |
+| 1 | 0.7644 | 0.5375 | 0.4979 | 0.5416 |
+| 2 | 0.7334 | 0.5844 | 0.4957 | 0.5603 |
+| 3 | 0.7981 | 0.5628 | 0.4935 | 0.5340 |
+| 4 | 0.7295 | 0.4649 | 0.4088 | 0.4869 |
+| **mean ± std** | **0.7673 ± 0.0330** | **0.5402 ± 0.0407** | 0.4585 ± 0.0457 | 0.5322 ± 0.0244 |
+
+The identical hard-exudate harness, unchanged, retargeted at haemorrhages via `--lesion`. The
+val→test drop here (0.767→0.540) is far larger than hard exudates showed on the same code
+(0.899→0.850) — every fold drops by a similar amount, not one bad fold skewing the mean. A
+plausible but unconfirmed mechanism: haemorrhages vary more in size and shape (small dot vs. larger
+blot haemorrhages) than hard exudates' more visually consistent appearance, so 43 training images
+per fold may cover the real variation less completely. Threshold tuning still helps here too (Dice
+std 0.046→0.024) but can't close a gap this size. This run also survived a real infrastructure
+hiccup — a session-boundary SIGTERM interrupted fold 4 mid-training, and it was resumed cleanly from
+its own checkpoint rather than retrained from scratch, landing at the identical best epoch it had
+already reached live. Full method and the incident notes:
+[`docs/13_PHASE4_HAEMORRHAGES_RESULTS.md`](docs/13_PHASE4_HAEMORRHAGES_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -498,7 +521,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 09_PHASE5_RESULTS.md      # temperature scaling, ECE before/after
 │   ├── 10_PHASE4_RESULTS.md      # hard-exudate segmentation, IDRiD 5-fold CV
 │   ├── 11_PHASE4_VESSELS_RESULTS.md  # vessel segmentation, DRIVE 5-fold CV
-│   └── 12_PHASE4_LOCALIZATION_RESULTS.md  # OD/fovea heatmap regression, target cleared
+│   ├── 12_PHASE4_LOCALIZATION_RESULTS.md  # OD/fovea heatmap regression, target cleared
+│   └── 13_PHASE4_HAEMORRHAGES_RESULTS.md  # haemorrhage segmentation, large val-test gap
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests

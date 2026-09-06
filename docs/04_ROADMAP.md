@@ -201,8 +201,15 @@ a clinician would recognise.
 > one along the OD-fovea axis, one perpendicular), needing no model — verified by 6 unit tests plus
 > a direct check against a real trained prediction. Labels describe geometry ("foveal-side" /
 > "disc-side", "superior" / "inferior"), not asserted nasal/temporal anatomy, since eye laterality
-> isn't reliably available in this project's datasets to make that mapping safely. Haemorrhages,
-> soft exudates, and microaneurysms remain unstarted.
+> isn't reliably available in this project's datasets to make that mapping safely.
+> **Haemorrhages** (see [`docs/13_PHASE4_HAEMORRHAGES_RESULTS.md`](13_PHASE4_HAEMORRHAGES_RESULTS.md)):
+> the identical hard-exudate harness, 5-fold CV, internal val AUPRC looks respectable
+> (**0.767 ± 0.033**) but drops far more on the held-out test set (**0.540 ± 0.041**) than hard
+> exudates did (0.899→0.850) — a plausibly real generalisation gap (haemorrhages are morphologically
+> more varied than hard exudates), not yet independently confirmed. Soft exudates and
+> microaneurysms remain unstarted; soft exudates and everything after uses a single train/val split
+> rather than 5-fold CV going forward, a deliberate scoping decision to manage total time across the
+> remaining Phase 4/5/6 items.
 
 ---
 
