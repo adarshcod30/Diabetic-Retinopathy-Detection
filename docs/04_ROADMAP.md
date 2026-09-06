@@ -424,8 +424,8 @@ AI?" — the number a health administrator would actually use.
 
 - [x] ONNX export; verify parity with PyTorch outputs
 - [x] FastAPI service (`amd64 + arm64` containerisation **explicitly descoped**, see below)
-- [ ] Gradio demo on HuggingFace Spaces
-- [ ] Weights on HF Hub / GitHub Releases with **research-use-only** licence
+- [ ] Gradio demo on HuggingFace Spaces — **blocked**, see below
+- [x] Weights on HF Hub / GitHub Releases with **research-use-only** licence
 - [x] **Model card**: intended use, training populations, measured performance *with* subgroup breakdown,
       known failure modes, "not a medical device"
 - [x] **Dataset card**: provenance, licences, what may and may not be redistributed
@@ -439,16 +439,25 @@ AI?" — the number a health administrator would actually use.
 > (`src/drdetect/serve/api.py`, `tests/integration/test_serve_api.py`).
 > [`MODEL_CARD.md`](../MODEL_CARD.md) and [`DATASET_CARD.md`](../DATASET_CARD.md) are both written
 > against the real Phase 8 external numbers, not placeholders. Every script's default
-> checkpoint/loss, the Gradio demo, and the HF Spaces entry point (`app.py`) now point at the
-> released regression-loss model, not the superseded CE baseline. **Containerisation (Docker,
-> amd64+arm64) was explicitly descoped by decision partway through Phase 9** -- a `Dockerfile` was
-> written and an image build started successfully, then cut before completion to keep this
-> project's footprint on its own development machine minimal; the FastAPI service ships and runs
-> directly instead, and this is a deliberate scope decision, not an abandoned item (see
-> `docs/03_TECH_STACK.md`'s own annotation). HF Spaces deployment and publishing weights (HF
-> Hub / GitHub Releases) remain open -- both are genuine external-publishing actions under this
-> project's own safety rules and need explicit go-ahead before being executed, the same way the
-> Phase 6 clinician timing study needed a human this project could not supply on its own.
+> checkpoint/loss and the local Gradio demo now point at the released regression-loss model, not
+> the superseded CE baseline. **Containerisation (Docker, amd64+arm64) was explicitly descoped by
+> decision partway through Phase 9** -- a `Dockerfile` was written and an image build started
+> successfully, then cut before completion to keep this project's footprint on its own development
+> machine minimal; the FastAPI service ships and runs directly instead, and this is a deliberate
+> scope decision, not an abandoned item (see `docs/03_TECH_STACK.md`'s own annotation).
+>
+> **Weights are published**: [huggingface.co/adarshcod30/drdetect-dr-screening](https://huggingface.co/adarshcod30/drdetect-dr-screening)
+> (checkpoint + ONNX export, research-use-only) and [GitHub Release v1.0](https://github.com/adarshcod30/Diabetic-Retinopathy-Detection/releases/tag/v1.0)
+> (same two files). Both required the user's explicit go-ahead first, per this project's own
+> safety rules around publishing new public content under someone's identity -- given, then acted
+> on, in the same session.
+>
+> **The HF Spaces demo is blocked, not skipped**: `app.py` is written and tested locally (fetches
+> the checkpoint from the HF Hub model repo via `hf_hub_download`, builds the Gradio interface
+> correctly) -- but creating the actual Space failed with HTTP 402: HuggingFace now requires a PRO
+> subscription to host a Gradio Space (only static Spaces are free). Subscribing the account to a
+> paid plan is a financial decision that needed asking about separately from "publish this," and
+> was not assumed. Run the demo locally instead: `make demo`.
 
 ---
 

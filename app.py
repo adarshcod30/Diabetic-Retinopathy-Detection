@@ -3,10 +3,11 @@
 Not used for local development -- `scripts/demo.py` is the local launcher,
 with a required `--checkpoint` flag pointing anywhere on disk. A Space has no
 such flag: HF Spaces runs `python app.py` with no arguments, so this file
-resolves the checkpoint from a fixed, documented location instead
-(`checkpoint/best.ckpt`, uploaded to the Space's own repo alongside this
-file -- research-use-only weights, see MODEL_CARD.md, never committed to the
-main GitHub repo, which ships code only).
+fetches the checkpoint from the separate model repo
+(huggingface.co/adarshcod30/drdetect-dr-screening -- research-use-only, see
+MODEL_CARD.md there) via `hf_hub_download` instead of bundling a 46MB weight
+file into this Space's own repo. `hf_hub_download` caches the file locally
+after the first fetch, so a Space restart does not re-download it.
 """
 
 from __future__ import annotations
@@ -16,18 +17,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-CHECKPOINT = Path(__file__).resolve().parent / "checkpoint" / "best.ckpt"
+MODEL_REPO = "adarshcod30/drdetect-dr-screening"
 
 if __name__ == "__main__":
-    if not CHECKPOINT.exists():
-        raise FileNotFoundError(
-            f"{CHECKPOINT} not found. Upload the chosen checkpoint (see MODEL_CARD.md) to "
-            "this Space's own repo at checkpoint/best.ckpt before it will serve requests."
-        )
+    from huggingface_hub import hf_hub_download
+
+    checkpoint = hf_hub_download(repo_id=MODEL_REPO, filename="best.ckpt")
 
     from drdetect.serve.demo import build_interface
 
     # regression loss, not ce: it won the locked external evaluation decisively
     # (docs/22_PHASE8_VALIDATION_RESULTS.md, referable AUC 0.924 vs 0.888, DeLong p=6.1e-10)
-    demo = build_interface(CHECKPOINT, backbone="efficientnet_b0", loss_name="regression", size=512)
+    demo = build_interface(checkpoint, backbone="efficientnet_b0", loss_name="regression", size=512)
     demo.launch()

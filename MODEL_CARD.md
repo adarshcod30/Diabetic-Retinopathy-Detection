@@ -1,5 +1,9 @@
 # Model Card — drdetect DR grading model
 
+**Weights**: [huggingface.co/adarshcod30/drdetect-dr-screening](https://huggingface.co/adarshcod30/drdetect-dr-screening)
+· **Release**: [GitHub v1.0](https://github.com/adarshcod30/Diabetic-Retinopathy-Detection/releases/tag/v1.0)
+(checkpoint + ONNX export, both mirrors of the same file)
+
 Following the structure of Mitchell et al., ["Model Cards for Model Reporting"](https://arxiv.org/abs/1810.03993)
 (FAT* 2019). Companion to [`DATASET_CARD.md`](DATASET_CARD.md) (what data went in, and its
 licensing) and every `docs/NN_PHASE*_RESULTS.md` file this project produced (the full evidence

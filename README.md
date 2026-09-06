@@ -4,20 +4,28 @@
 
 ### Explainable, quality-aware AI for diabetic retinopathy screening in rural India — built to be audited, not just admired
 
-[![Status](https://img.shields.io/badge/status-in%20development-orange)](docs/04_ROADMAP.md)
+[![Status](https://img.shields.io/badge/status-Phases%201–9%20complete-brightgreen)](docs/04_ROADMAP.md)
 [![License](https://img.shields.io/badge/license-MIT%20(code)-blue)](LICENSE)
+[![Model weights](https://img.shields.io/badge/🤗%20weights-research--use--only-yellow)](https://huggingface.co/adarshcod30/drdetect-dr-screening)
 [![Python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)](#getting-started)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white)](#tech-stack)
 [![Not a medical device](https://img.shields.io/badge/⚠️-not%20a%20medical%20device-red)](#ethical-boundary--intended-use)
 
-[**Analysis**](docs/01_PROJECT_ANALYSIS.md) · [**Literature**](docs/02_LITERATURE_REVIEW.md) · [**Tech Stack**](docs/03_TECH_STACK.md) · [**Roadmap**](docs/04_ROADMAP.md) · [**Prototype Scope**](docs/05_PROTOTYPE_SCOPE.md) · [**Report Bug**](https://github.com/adarshcod30/Diabetic-Retinopathy-Detection/issues)
+[**Analysis**](docs/01_PROJECT_ANALYSIS.md) · [**Literature**](docs/02_LITERATURE_REVIEW.md) · [**Tech Stack**](docs/03_TECH_STACK.md) · [**Roadmap**](docs/04_ROADMAP.md) · [**Prototype Scope**](docs/05_PROTOTYPE_SCOPE.md) · [**Model Weights (HF Hub)**](https://huggingface.co/adarshcod30/drdetect-dr-screening) · [**Release**](https://github.com/adarshcod30/Diabetic-Retinopathy-Detection/releases/tag/v1.0) · [**Report Bug**](https://github.com/adarshcod30/Diabetic-Retinopathy-Detection/issues)
 
 </div>
 
-> **⚠️ Development status.** This repository is in **Phase 0** of a 20-week plan. The architecture,
-> evidence base, and validation protocol are complete and documented; models are not yet trained.
-> Every performance figure below is labelled **target** until it is measured on a locked test set.
+> **Status.** All 9 planned phases are complete, including a locked, one-time external evaluation
+> (Messidor-2 + IDRiD) and a released model — see
+> [`docs/22_PHASE8_VALIDATION_RESULTS.md`](docs/22_PHASE8_VALIDATION_RESULTS.md) for the headline
+> result and [`MODEL_CARD.md`](MODEL_CARD.md) for the honest limitations of what's released.
+> Every performance figure below is a measured result with its source doc linked, not a target —
+> including the ones that came in below target, reported the same way as the ones that didn't.
 > No unmeasured number is presented as a result.
+>
+> A public **Gradio demo Space was not deployed**: HuggingFace now requires a PRO subscription to
+> host a Gradio Space (static-only Spaces are free), which this account does not have. Run it
+> locally instead: `make demo`, or `python scripts/demo.py --checkpoint <path> --loss regression`.
 
 ---
 
