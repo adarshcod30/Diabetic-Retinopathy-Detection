@@ -77,6 +77,44 @@ def find_messidor2(root: Path) -> tuple[Path, Path]:
     )
 
 
+def find_idrid_grading(root: Path, split: str) -> tuple[Path, Path]:
+    """Locate IDRiD's *disease-grading* images + labels (516 images total: 413
+    train / 103 test) -- distinct from the 81-image segmentation subset
+    already used in Phase 4/6, and sharing IDRiD's official 413/103 split
+    already used for OD/fovea localisation (docs/12). 'test' is the locked
+    external test set for Phase 8; do not preprocess 'train' for anything
+    other than an explicitly non-tuning purpose.
+    """
+    folder = "a. Training Set" if split == "train" else "b. Testing Set"
+    label_file = (
+        "a. IDRiD_Disease Grading_Training Labels.csv"
+        if split == "train"
+        else "b. IDRiD_Disease Grading_Testing Labels.csv"
+    )
+    images = root / "B. Disease Grading" / "1. Original Images" / folder
+    csv_path = root / "B. Disease Grading" / "2. Groundtruths" / label_file
+    if images.is_dir() and csv_path.exists():
+        return images, csv_path
+    raise FileNotFoundError(
+        f"Could not find {images} + {csv_path}.\n"
+        "Expected the official IDRiD 'B. Disease Grading' folder under data/raw/idrid/."
+    )
+
+
+def load_idrid_grading_labels(csv_path: Path) -> dict[str, int]:
+    """Filename stem -> ICDR grade. Source CSV has trailing empty columns and
+    a trailing-space header ("Risk of macular edema "); only the grade column
+    is used here."""
+    labels = {}
+    with open(csv_path, newline="") as fh:
+        for row in csv.DictReader(fh):
+            name = row.get("Image name", "").strip()
+            grade = row.get("Retinopathy grade", "").strip()
+            if name and grade != "":
+                labels[name.lower()] = int(grade)
+    return labels
+
+
 def load_messidor2_labels(csv_path: Path) -> dict[str, int]:
     """Filename stem (lower-cased) -> ICDR grade, gradable images only.
 
@@ -139,7 +177,14 @@ def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--dataset", default="aptos", choices=["aptos", "messidor2"])
+    p.add_argument("--dataset", default="aptos", choices=["aptos", "messidor2", "idrid"])
+    p.add_argument(
+        "--idrid-split",
+        default="test",
+        choices=["train", "test"],
+        help="IDRiD disease-grading partition (only used when --dataset idrid). "
+        "'test' (103 images) is the locked external test set for Phase 8.",
+    )
     p.add_argument("--raw-dir", default="data/raw")
     p.add_argument("--out-dir", default="data/processed")
     p.add_argument("--manifest-dir", default="data/manifests")
@@ -160,12 +205,19 @@ def main() -> int:
     if args.dataset == "messidor2":
         images_dir, csv_path = find_messidor2(raw_root)
         labels = load_messidor2_labels(csv_path)
+    elif args.dataset == "idrid":
+        images_dir, csv_path = find_idrid_grading(raw_root, args.idrid_split)
+        labels = load_idrid_grading_labels(csv_path)
     else:
         images_dir, csv_path = find_aptos(raw_root)
         labels = load_aptos_labels(csv_path)
     print(f"Found {len(labels)} labelled images under {images_dir}")
 
-    out_dir = Path(args.out_dir) / f"{args.dataset}_{args.size}"
+    # IDRiD needs train vs. test disambiguated in cache/manifest filenames --
+    # aptos and messidor2 have no such split, so their tag is just the dataset name.
+    dataset_tag = f"idrid_{args.idrid_split}" if args.dataset == "idrid" else args.dataset
+
+    out_dir = Path(args.out_dir) / f"{dataset_tag}_{args.size}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Explicit-case globs rather than relying on a case-insensitive filesystem:
@@ -174,12 +226,13 @@ def main() -> int:
     # would silently glob past all of them with a lower-case-only pattern.
     patterns = ("*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG")
     sources = sorted({p for pat in patterns for p in images_dir.glob(pat)})
-    if args.dataset == "messidor2":
-        # Ungradable images have no label to preprocess towards -- and this is
-        # a locked test set, so they must be absent, not present as label=-1.
+    if args.dataset in ("messidor2", "idrid"):
+        # Ungradable/unlabelled images have no label to preprocess towards --
+        # and both are locked-test-set candidates, so they must be absent,
+        # not present as label=-1.
         before = len(sources)
         sources = [s for s in sources if s.stem.lower() in labels]
-        print(f"  excluding {before - len(sources)} ungradable image(s) (no adjudicated grade)")
+        print(f"  excluding {before - len(sources)} unlabelled image(s) (no adjudicated grade)")
     if args.limit:
         sources = sources[: args.limit]
     if not sources:
@@ -274,7 +327,7 @@ def main() -> int:
         )
         for r in results
     ]
-    manifest = write_manifest(records, Path(args.manifest_dir) / f"{args.dataset}_{args.size}.csv")
+    manifest = write_manifest(records, Path(args.manifest_dir) / f"{dataset_tag}_{args.size}.csv")
 
     counts = np.bincount([r.label for r in records if r.label >= 0], minlength=5)
     cached_mb = sum(f.stat().st_size for f in out_dir.glob("*.jpg")) / 1024**2
@@ -293,10 +346,10 @@ def main() -> int:
 
     if failures:
         print(f"\n{len(failures)} images failed: {failures[:10]}", file=sys.stderr)
-    if args.dataset == "messidor2":
+    if args.dataset == "messidor2" or (args.dataset == "idrid" and args.idrid_split == "test"):
         print(
-            "\nThis is the LOCKED EXTERNAL TEST SET (Phase 8). Do not use it for training, "
-            "threshold selection, or any tuning decision -- evaluate on it once, at the end."
+            "\nThis is (part of) the LOCKED EXTERNAL TEST SET (Phase 8). Do not use it for "
+            "training, threshold selection, or any tuning decision -- evaluate on it once, at the end."
         )
     else:
         print("\nNext: python scripts/train.py  (baseline)")
