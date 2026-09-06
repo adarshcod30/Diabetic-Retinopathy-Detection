@@ -31,6 +31,9 @@ __all__ = [
     "evaluate_at_threshold",
     "bootstrap_ci",
     "expected_calibration_error",
+    "DeLongResult",
+    "delong_roc_variance",
+    "delong_test",
 ]
 
 # ICDR grade >= 2 (Moderate NPDR) is the clinical referral boundary.
@@ -240,6 +243,81 @@ def bootstrap_ci(
 
     alpha = (1.0 - confidence) / 2.0
     return point, float(np.quantile(stats, alpha)), float(np.quantile(stats, 1 - alpha))
+
+
+@dataclass(frozen=True)
+class DeLongResult:
+    auc_a: float
+    auc_b: float
+    z: float
+    p: float
+
+
+def _delong_structural_components(
+    pos_scores: np.ndarray, neg_scores: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Placement values per DeLong et al. (1988) / Sun & Xu (2014): psi(x, y) =
+    1 if x>y, 0.5 if x==y, 0 if x<y, averaged over the other group. Their means
+    both equal AUC; their sample variances/covariances give AUC's variance
+    without ever forming the full O(n_pos * n_neg) U-statistic sum by hand."""
+    diff = pos_scores[:, None] - neg_scores[None, :]
+    psi = np.where(diff > 0, 1.0, np.where(diff == 0, 0.5, 0.0))
+    return psi.mean(axis=1), psi.mean(axis=0)
+
+
+def delong_roc_variance(y_true_binary, y_score) -> tuple[float, float]:
+    """AUC and its DeLong variance for one classifier. Mainly a building block
+    for `delong_test`; exposed because reporting AUC's own CI (not just a
+    difference) is sometimes wanted on its own."""
+    y_true = np.asarray(y_true_binary, dtype=int)
+    y_score = np.asarray(y_score, dtype=float)
+    v10, v01 = _delong_structural_components(y_score[y_true == 1], y_score[y_true == 0])
+    auc = float(v10.mean())
+    var = float(v10.var(ddof=1) / len(v10) + v01.var(ddof=1) / len(v01))
+    return auc, var
+
+
+def delong_test(y_true_binary, score_a, score_b) -> DeLongResult:
+    """Paired DeLong test: are two classifiers' AUCs different, on the SAME
+    sample? (DeLong, DeLong & Clarke-Pearson, 1988; fast form: Sun & Xu, 2014.)
+
+    Why paired, not two independent bootstrap CIs
+    ----------------------------------------------
+    `score_a` and `score_b` are two models' scores for the *same* patients.
+    Comparing two independent-looking AUC confidence intervals for overlap is
+    not a significance test and is typically conservative: it ignores that
+    both models get the same cases right or wrong for the same reasons (the
+    same hard patients), which is exactly the correlation McNemar's test
+    exploits for paired sensitivity/specificity elsewhere in this project
+    (`scripts/compare.py`). DeLong's test is the AUC-scale analogue: it uses
+    the covariance between the two classifiers' per-patient placement values,
+    not just their marginal variances.
+    """
+    y_true = np.asarray(y_true_binary, dtype=int)
+    score_a = np.asarray(score_a, dtype=float)
+    score_b = np.asarray(score_b, dtype=float)
+    pos, neg = y_true == 1, y_true == 0
+
+    v10_a, v01_a = _delong_structural_components(score_a[pos], score_a[neg])
+    v10_b, v01_b = _delong_structural_components(score_b[pos], score_b[neg])
+    auc_a, auc_b = float(v10_a.mean()), float(v10_b.mean())
+
+    s10 = np.cov(np.vstack([v10_a, v10_b]))
+    s01 = np.cov(np.vstack([v01_a, v01_b]))
+    s = s10 / len(v10_a) + s01 / len(v01_a)
+
+    var_d = float(s[0, 0] + s[1, 1] - 2 * s[0, 1])
+    if var_d <= 0:
+        # Degenerate only when both classifiers agree on every placement
+        # (identical scores, or one/zero cases in a class) -- there is no
+        # detectable difference to test.
+        return DeLongResult(auc_a, auc_b, 0.0, 1.0)
+
+    from scipy import stats as scipy_stats
+
+    z = (auc_a - auc_b) / np.sqrt(var_d)
+    p = float(2 * (1 - scipy_stats.norm.cdf(abs(z))))
+    return DeLongResult(auc_a, auc_b, float(z), p)
 
 
 def expected_calibration_error(y_true_binary, y_prob, *, n_bins: int = 15) -> float:

@@ -13,6 +13,8 @@ from drdetect.eval.metrics import (
     binary_scores,
     bootstrap_ci,
     choose_threshold_for_sensitivity,
+    delong_roc_variance,
+    delong_test,
     evaluate_at_threshold,
     expected_calibration_error,
     quadratic_weighted_kappa,
@@ -253,3 +255,68 @@ class TestYoudenJ:
         y_true = np.array([1] * 90 + [0] * 10)
         always_pos = np.ones(100)
         assert youden_j(y_true, always_pos) == pytest.approx(0.0, abs=1e-9)
+
+
+class TestDeLong:
+    """AUC and its DeLong variance validated against sklearn's independent
+    roc_auc_score, the same strategy TestQWK uses against cohen_kappa_score --
+    if a hand-rolled placement-value implementation agrees with an unrelated
+    library's rank-based one, a shared bug is very unlikely."""
+
+    @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
+    def test_auc_matches_sklearn(self, seed):
+        from sklearn.metrics import roc_auc_score
+
+        rng = np.random.default_rng(seed)
+        y = rng.integers(0, 2, size=300)
+        score = rng.random(300) + y * rng.uniform(0.2, 0.8)
+        auc_mine, var = delong_roc_variance(y, score)
+        assert auc_mine == pytest.approx(roc_auc_score(y, score), abs=1e-9)
+        assert var > 0
+
+    def test_identical_scores_show_no_difference(self):
+        """The paired-comparison analogue of comparing a classifier to itself:
+        z must be exactly 0 and p exactly 1, not merely 'not significant'."""
+        rng = np.random.default_rng(1)
+        y = rng.integers(0, 2, size=200)
+        score = rng.random(200)
+        result = delong_test(y, score, score)
+        assert result.z == pytest.approx(0.0, abs=1e-9)
+        assert result.p == pytest.approx(1.0, abs=1e-9)
+        assert result.auc_a == pytest.approx(result.auc_b)
+
+    def test_detects_a_large_real_difference(self):
+        """A strong classifier vs. coin-flip noise, same patients -- the
+        textbook case DeLong's test exists to catch."""
+        rng = np.random.default_rng(2)
+        n = 400
+        y = rng.integers(0, 2, size=n)
+        strong = y * 0.8 + rng.normal(0, 0.15, n)
+        noise = rng.random(n)
+        result = delong_test(y, strong, noise)
+        assert result.auc_a > 0.85
+        assert result.auc_b == pytest.approx(0.5, abs=0.1)
+        assert result.p < 0.001
+
+    def test_matches_bootstrap_direction_on_real_looking_scores(self):
+        """Not a numerical cross-check (DeLong is analytic, bootstrap is
+        resampling-based) -- just confirms the two disagree-detection routes
+        this project uses (DeLong here, bootstrap_ci elsewhere) at least point
+        the same way on the same data, as a sanity check against a sign error."""
+        rng = np.random.default_rng(3)
+        n = 250
+        y = rng.integers(0, 2, size=n)
+        better = y * 0.5 + rng.normal(0, 0.25, n)
+        worse = y * 0.2 + rng.normal(0, 0.25, n)
+
+        result = delong_test(y, better, worse)
+
+        from sklearn.metrics import roc_auc_score
+
+        auc_better, lo, hi = bootstrap_ci(
+            lambda t, s: roc_auc_score(t, s) if len(set(t)) > 1 else 0.5,
+            y,
+            better,
+            n_resamples=500,
+        )
+        assert (result.auc_a > result.auc_b) == (auc_better > roc_auc_score(y, worse))
