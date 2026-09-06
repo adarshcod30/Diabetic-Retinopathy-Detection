@@ -330,17 +330,36 @@ IoU). This is the most novel artefact in the project.
 
 ## Phase 7 — Screening-programme simulation (Weeks 16–17)
 
-- [ ] SimPy discrete-event model: camps → capture → upload → inference → triage → human review
-- [ ] Parameterise from **measured** values: your model's real throughput, real image sizes, published
+- [x] SimPy discrete-event model: camps → capture → upload → inference → triage → human review
+- [x] Parameterise from **measured** values: your model's real throughput, real image sizes, published
       grader rates. No invented constants.
-- [ ] Scenarios: 100,000 patients/year; bandwidth 1/5/10 Mbps; 2/4/8 graders; outage injection
-- [ ] Outputs: turnaround time distribution, grader utilisation, backlog under outage, cost/patient,
+- [x] Scenarios: 100,000 patients/year; bandwidth 1/5/10 Mbps; 2/4/8 graders; outage injection
+- [x] Outputs: turnaround time distribution, grader utilisation, backlog under outage, cost/patient,
       **ophthalmologist-hours freed by auto-clearing confident grade-0 cases**
-- [ ] Sensitivity analysis on the auto-clear threshold — this links Phase 5's calibration to programme cost
-- [ ] *(Optional)* mirror in Simulink via MATLAB Online / campus licence; commit `.slx` + plots
+- [x] Sensitivity analysis on the auto-clear threshold — this links Phase 5's calibration to programme cost
+- [ ] *(Optional, cut)* mirror in Simulink via MATLAB Online / campus licence; commit `.slx` + plots
 
 **Exit criterion:** a chart answering "how many graders does a district of 100k need, with and without
 AI?" — the number a health administrator would actually use.
+
+> **Achieved:** see [`docs/20_PHASE7_SIMULATION_RESULTS.md`](20_PHASE7_SIMULATION_RESULTS.md).
+> `simulation/simpy/district.py` implements the full flow; `scripts/benchmark_inference.py` measures
+> this project's own real CPU inference throughput (2,137 ms/image grading-only; +41.9s/image for
+> full lesion evidence, confirming the Phase 6 two-tier design is close to mandatory, not a nicety)
+> and real fundus-photo file size (392.6 KB mean, correcting docs/01's ~4MB guess by ~10x).
+> Grader throughput has no trustworthy single published figure, so it is CITED from three real
+> sources and swept 10-30/hr rather than asserted as one number (15/hr is this project's own
+> stated base-case assumption). **Headline finding**: bandwidth (1/5/10 Mbps) has no measurable
+> effect on turnaround at this patient volume — confirming, not assuming, docs/01's own hypothesis
+> that grader capacity is the true bottleneck. At the base-case grader rate, **2 graders collapses
+> the system** (p90 turnaround ~1,084 hours), **4 graders is marginal** (97-98% utilisation,
+> single-digit-hour turnaround), **8 graders is comfortable** (<50% utilisation, turnaround in
+> minutes) — a district budgeting for 100k patients/year should plan for 6-8 dedicated graders, not
+> fewer. The auto-clear sensitivity sweep quantifies a real safety/efficiency tradeoff: widening
+> the confidence threshold from this project's default to its most permissive setting frees an
+> extra ~2,236 grader-hours/year but more than doubles the wrong-auto-clear rate (0.85%→1.90%,
+> i.e. ~489→1,733 patients/year with true grade >0 told "no follow-up needed"). The Simulink
+> mirror was explicitly cut per the roadmap's own scope-cut list (item 2: "SimPy suffices").
 
 ---
 

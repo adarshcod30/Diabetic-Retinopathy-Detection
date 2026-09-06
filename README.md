@@ -575,6 +575,25 @@ this project, rather than implying evidence that was never found. The extended P
 image panel, colour legend, evidence text) still fits comfortably on one A4 page. Full method:
 [`docs/19_PHASE6_REPORT_RESULTS.md`](docs/19_PHASE6_REPORT_RESULTS.md).
 
+### Phase 7 simulation — bandwidth doesn't matter, grader headcount is everything
+
+A SimPy discrete-event model of the full screening flow (camps → capture → upload → inference →
+triage → human review), parameterised from this project's own measured CPU inference throughput
+(2,137 ms/image for grading; **+41.9 seconds/image** for full lesion-evidence extraction — the
+Phase 6 two-tier design turns out to be close to mandatory, not a nicety) and real fundus-photo
+file size (392.6 KB mean, correcting an earlier ~4 MB guess by ~10×). Grader throughput has no
+single trustworthy published figure, so it is cited from three real sources and swept 10–30/hr
+rather than trusted as one number. **Bandwidth (1/5/10 Mbps) changes nothing measurable** at
+100,000 patients/year — confirming, not assuming, that human review capacity is the actual
+bottleneck. At this project's base-case grader rate: **2 graders collapses the queue** (p90
+turnaround ≈1,084 hours), **4 graders is marginal** (97–98% utilisation), **8 graders is
+comfortable** (<50% utilisation, turnaround in minutes) — a district planning for 100k
+patients/year should budget 6–8 dedicated graders. The auto-clear sensitivity sweep quantifies a
+real tradeoff, not just a benefit: widening the confidence threshold to its most permissive
+setting frees an extra ~2,236 grader-hours/year but more than doubles the wrong-auto-clear rate
+(0.85%→1.90% of auto-cleared cases, i.e. ~489→1,733 patients/year with true grade >0 told "no
+follow-up needed"). Full method and every scenario: [`docs/20_PHASE7_SIMULATION_RESULTS.md`](docs/20_PHASE7_SIMULATION_RESULTS.md).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -651,7 +670,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 16_PHASE5_FUSION_RESULTS.md  # lesion features + fusion head, exit criterion not met
 │   ├── 17_PHASE5_UNCERTAINTY_RESULTS.md  # MC-dropout + human-escalation, strong result
 │   ├── 18_PHASE6_CAM_LOCALIZATION_RESULTS.md  # pointing-game/IoU vs IDRiD masks, chance-adjusted
-│   └── 19_PHASE6_REPORT_RESULTS.md  # lesion overlays, ICDR evidence, redesigned PDF report
+│   ├── 19_PHASE6_REPORT_RESULTS.md  # lesion overlays, ICDR evidence, redesigned PDF report
+│   └── 20_PHASE7_SIMULATION_RESULTS.md  # SimPy district model, graders-needed chart
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
@@ -666,9 +686,9 @@ Diabetic-Retinopathy-Detection/
 │   ├── serve/                # FastAPI + ONNX
 │   └── utils/                # seeding, logging, io
 ├── simulation/
-│   ├── simpy/                # Stage 7 — district screening programme model
-│   └── simulink/             # optional .slx mirror
-├── scripts/                  # benchmark_device.py · download_data.sh · preprocess.py · train.py · evaluate.py
+│   └── simpy/                # district.py, parameters.py — Phase 7 screening-programme model
+│                              # (the optional Simulink mirror was cut, see roadmap scope-cut list)
+├── scripts/                  # benchmark_device.py · benchmark_inference.py · preprocess.py · train.py · evaluate.py · evaluate_external.py · run_simulation_scenarios.py · export_onnx.py
 ├── tests/
 ├── models/                   # gitignored; released via GitHub Releases / HF Hub
 └── .github/workflows/
