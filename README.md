@@ -375,9 +375,32 @@ patches rather than derived from the ~1,400:1 whole-image imbalance ratio, train
 test images via tiled full-resolution inference. Dice is reported both at a fixed 0.5 and at a
 threshold tuned per fold on that fold's own validation split (then frozen before touching test) —
 the fixed threshold's fold-to-fold spread (std 0.080) is over 5x the tuned threshold's (std 0.015)
-on the identical checkpoints, driven mostly by fold 2's early-stopped, less-mature model. Vessels,
-OD/fovea, quadrant mapping, haemorrhages, soft exudates, and microaneurysms remain unstarted. Full
+on the identical checkpoints, driven mostly by fold 2's early-stopped, less-mature model. Full
 method and both mechanism-level findings: [`docs/10_PHASE4_RESULTS.md`](docs/10_PHASE4_RESULTS.md).
+
+### Phase 4 vessels — AUROC close to target (0.9416 ± 0.0035), Dice is not (0.662 ± 0.023)
+
+| Fold | AUROC | Dice @ 0.5 | Dice @ best-possible (same-data, not a held-out tune) |
+|---|---|---|---|
+| 0 | 0.9451 | 0.6641 | 0.7051 |
+| 1 | 0.9421 | 0.6980 | 0.7185 |
+| 2 | 0.9354 | 0.6241 | 0.6676 |
+| 3 | 0.9407 | 0.6628 | 0.6931 |
+| 4 | 0.9448 | 0.6614 | 0.7038 |
+| **mean ± std** | **0.9416 ± 0.0035** | 0.6621 ± 0.0234 | 0.6976 ± 0.0170 |
+
+DRIVE's official test split ships no vessel ground truth at all (confirmed directly — only
+`images/` and a field-of-view mask), so all 20 publicly-labelled images went into 5-fold CV instead
+of a train/locked-test split. A DeepLabV3+/resnet34 model, trained on full (not patched) images
+since DRIVE is small enough, with both loss and every metric computed only inside each image's own
+field-of-view mask — otherwise a model that trivially gets the black surround right looks better
+than it is. AUROC is both strong and remarkably stable (tighter than any other 5-fold CV run in
+this project) and close to the roadmap's 0.97+ target; Dice sits 0.14 below the 0.80+ target, and
+checking directly (sweeping every threshold on each fold's own validation images) shows only ~3.5
+points of that gap is a fixed-threshold artifact — most of it looks like a genuine capacity/data-scale
+shortfall on fine, thin vessel-branch boundaries specifically, where Dice penalises small pixel
+misalignments far more than AUROC's ranking-based formulation does. Full method and the diagnostic
+that ruled out the threshold explanation: [`docs/11_PHASE4_VESSELS_RESULTS.md`](docs/11_PHASE4_VESSELS_RESULTS.md).
 
 ### Remaining targets
 
@@ -446,7 +469,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 07_PHASE3_RESULTS.md      # ablation, five mechanisms, one refuted hypothesis
 │   ├── 08_PHASE6_RESULTS.md      # Grad-CAM/++/Score-CAM/Eigen-CAM sanity checks
 │   ├── 09_PHASE5_RESULTS.md      # temperature scaling, ECE before/after
-│   └── 10_PHASE4_RESULTS.md      # hard-exudate segmentation, first IDRiD baseline
+│   ├── 10_PHASE4_RESULTS.md      # hard-exudate segmentation, IDRiD 5-fold CV
+│   └── 11_PHASE4_VESSELS_RESULTS.md  # vessel segmentation, DRIVE 5-fold CV
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests

@@ -179,14 +179,20 @@ a clinician would recognise.
 > **Scope honesty:** neovascularisation has no public pixel masks. Detect PDR at image level; document
 > NV segmentation as future work. Do not fabricate it.
 
-> **Partially achieved:** see [`docs/10_PHASE4_RESULTS.md`](10_PHASE4_RESULTS.md). Hard exudates
+> **Partially achieved:** see [`docs/10_PHASE4_RESULTS.md`](10_PHASE4_RESULTS.md) (hard exudates) and
+> [`docs/11_PHASE4_VESSELS_RESULTS.md`](11_PHASE4_VESSELS_RESULTS.md) (vessels). Hard exudates
 > trained and scored end to end on IDRiD's official split, with the 5-fold CV this item specifies:
 > test-set pixel AUPRC **0.8500 ± 0.0292** across 5 folds (tiled full-resolution inference, 27
 > held-out test images, metrics pooled across pixels). Dice is reported at a threshold tuned per
 > fold on that fold's own validation split, not a hardcoded 0.5 — the fixed threshold's fold-to-fold
 > spread (std 0.080) was over 5x the tuned threshold's (std 0.015), on the identical checkpoints.
-> Vessels, OD/fovea, quadrant mapping, haemorrhages, soft exudates, and microaneurysms remain
-> entirely unstarted.
+> Vessels: 5-fold CV on DRIVE's 20 publicly-labelled images (its official test split ships no
+> vessel ground truth at all), DeepLabV3+/resnet34 on full images rather than U-Net on patches.
+> AUROC lands close to target and is very stable (**0.9416 ± 0.0035** vs. the 0.97+ target); Dice
+> does not (**0.662 ± 0.023** vs. 0.80+) — checked directly, only ~3.5 points of that gap is a
+> fixed-threshold artifact, so this is mostly a real capacity/data-scale shortfall on fine
+> vessel-branch boundaries, not a scoring artifact. OD/fovea, quadrant mapping, haemorrhages, soft
+> exudates, and microaneurysms remain entirely unstarted.
 
 ---
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["pixel_auprc", "dice_coefficient", "best_dice_threshold"]
+__all__ = ["pixel_auprc", "pixel_auroc", "dice_coefficient", "best_dice_threshold"]
 
 
 def pixel_auprc(y_true: np.ndarray, y_score: np.ndarray) -> float:
@@ -34,6 +34,22 @@ def pixel_auprc(y_true: np.ndarray, y_score: np.ndarray) -> float:
     if y_true.sum() == 0:
         raise ValueError("no positive pixels in y_true -- AUPRC is undefined without any")
     return float(average_precision_score(y_true, y_score))
+
+
+def pixel_auroc(y_true: np.ndarray, y_score: np.ndarray) -> float:
+    """AUROC, pooled the same way as pixel_auprc. Meaningless at IDRiD-lesion-scale
+    imbalance (<0.1% positive, see pixel_auprc's own docstring) but the roadmap
+    names it explicitly as the vessel-segmentation target metric -- vessels are
+    a measured ~7.5% of DRIVE pixels, not extreme enough for AUROC's
+    false-positive-rate denominator to be swamped by trivial true negatives the
+    way it is for lesions."""
+    from sklearn.metrics import roc_auc_score
+
+    y_true = np.asarray(y_true).ravel().astype(int)
+    y_score = np.asarray(y_score).ravel().astype(float)
+    if y_true.sum() == 0 or y_true.sum() == len(y_true):
+        raise ValueError("AUROC is undefined with only one class present in y_true")
+    return float(roc_auc_score(y_true, y_score))
 
 
 def dice_coefficient(y_true: np.ndarray, y_pred_binary: np.ndarray, *, eps: float = 1e-7) -> float:
