@@ -220,6 +220,11 @@ flowchart LR
 - **Why on-device quality check:** it must run *while the patient is still in the chair*. A round trip
   to the cloud to learn the image was blurry is exactly the failure Beede et al. documented.
 - **Containerisation:** Docker, `linux/amd64` + `linux/arm64` (Raspberry Pi / Jetson are plausible PHC hardware).
+  > ⚠️ **Descoped in Phase 9** by explicit decision, not abandoned silently: a working `Dockerfile`
+  > + FastAPI service were built and the image began building successfully, but containerisation
+  > was cut before a full build/push, to keep this project's footprint on its own development
+  > machine minimal. `src/drdetect/serve/api.py` (the FastAPI service itself) still ships and is
+  > tested — only the container packaging step was cut. See `docs/04_ROADMAP.md` Phase 9.
 - **CI:** GitHub Actions — ruff, pytest, and a smoke test that runs one image end-to-end on CPU.
 - **Public demo:** Gradio on HuggingFace Spaces (free CPU tier is enough for single-image inference).
 

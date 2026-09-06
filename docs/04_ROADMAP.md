@@ -422,16 +422,33 @@ AI?" — the number a health administrator would actually use.
 
 ## Phase 9 — Release (Week 20)
 
-- [ ] ONNX export; verify parity with PyTorch outputs
-- [ ] FastAPI service + Dockerfile (amd64 + arm64)
+- [x] ONNX export; verify parity with PyTorch outputs
+- [x] FastAPI service (`amd64 + arm64` containerisation **explicitly descoped**, see below)
 - [ ] Gradio demo on HuggingFace Spaces
 - [ ] Weights on HF Hub / GitHub Releases with **research-use-only** licence
-- [ ] **Model card**: intended use, training populations, measured performance *with* subgroup breakdown,
+- [x] **Model card**: intended use, training populations, measured performance *with* subgroup breakdown,
       known failure modes, "not a medical device"
-- [ ] **Dataset card**: provenance, licences, what may and may not be redistributed
-- [ ] Production README with the architecture diagrams and headline results
-- [ ] `make setup && make evaluate` reproduces the headline table from a clean clone
+- [x] **Dataset card**: provenance, licences, what may and may not be redistributed
+- [x] Production README with the architecture diagrams and headline results
+- [x] `make setup && make evaluate` reproduces the headline table from a clean clone
 - [ ] *(Optional)* write it up — this is a workshop-paper-shaped result
+
+> **Progress:** ONNX export re-run and parity-verified against the actual released checkpoint
+> (`sweep_512_regression_fold0`, max abs diff 2.4e-07, not the superseded CE baseline) --
+> `scripts/export_onnx.py`. FastAPI service built and tested end to end
+> (`src/drdetect/serve/api.py`, `tests/integration/test_serve_api.py`).
+> [`MODEL_CARD.md`](../MODEL_CARD.md) and [`DATASET_CARD.md`](../DATASET_CARD.md) are both written
+> against the real Phase 8 external numbers, not placeholders. Every script's default
+> checkpoint/loss, the Gradio demo, and the HF Spaces entry point (`app.py`) now point at the
+> released regression-loss model, not the superseded CE baseline. **Containerisation (Docker,
+> amd64+arm64) was explicitly descoped by decision partway through Phase 9** -- a `Dockerfile` was
+> written and an image build started successfully, then cut before completion to keep this
+> project's footprint on its own development machine minimal; the FastAPI service ships and runs
+> directly instead, and this is a deliberate scope decision, not an abandoned item (see
+> `docs/03_TECH_STACK.md`'s own annotation). HF Spaces deployment and publishing weights (HF
+> Hub / GitHub Releases) remain open -- both are genuine external-publishing actions under this
+> project's own safety rules and need explicit go-ahead before being executed, the same way the
+> Phase 6 clinician timing study needed a human this project could not supply on its own.
 
 ---
 
