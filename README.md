@@ -628,15 +628,13 @@ test set with significance tests — is specified in
 
 ## Deployment & Infrastructure
 
-| Concern | Approach |
-|---|---|
-| **Training** | Kaggle Notebooks (T4/P100, 30 GPU-h/week, EyePACS pre-mounted) — chosen because the dev machine has 28 GB free disk and EyePACS is ~90 GB |
-| **Local development** | Apple M4 via PyTorch MPS — preprocessing, IDRiD segmentation, inference, explainability, demo |
-| **Model export** | PyTorch → ONNX → ONNX Runtime (server), CoreML (Apple), TFLite (Android capture app) |
-| **Serving** | FastAPI + ONNX Runtime in Docker (`linux/amd64` + `linux/arm64`, so Jetson/Raspberry Pi remain viable for a PHC) |
-| **Edge** | On-device quality check so blur is caught before upload, not after |
-| **Connectivity** | Store-and-forward queue; the simulation explicitly models 1–10 Mbps rural links and outages |
-| **Public demo** | Gradio on HuggingFace Spaces (free CPU tier) |
+| Concern | Approach | Status |
+|---|---|---|
+| **Training** | All models trained locally on an Apple M4 (16 GB) via PyTorch MPS, from ImageNet init | **Done** for every checkpoint in this project. Kaggle/EyePACS pretraining was investigated in Phase 3 and found not runnable on local compute as-is — documented as an open gap, not silently dropped (docs/07) |
+| **Model export** | PyTorch → ONNX, verified for numerical parity (`scripts/export_onnx.py`) | **Done** — max abs diff 2.15e-06 against the PyTorch module on a real image. CoreML/TFLite export (for an eventual on-device capture app) is unbuilt, planned future work |
+| **Serving** | FastAPI + the existing Phase 2 pipeline, in a `Dockerfile` buildable for `linux/amd64` + `linux/arm64` (`docker buildx build --platform linux/amd64,linux/arm64`) — CPU-only, no GPU assumed | **Built**; `/grade` endpoint wraps `load_grader`/`run_pipeline` (`src/drdetect/serve/api.py`) |
+| **Connectivity** | Store-and-forward queue modelled explicitly in the Phase 7 simulation (1–10 Mbps rural links, per-camp outage injection) | **Modelled**, see [`docs/20_PHASE7_SIMULATION_RESULTS.md`](docs/20_PHASE7_SIMULATION_RESULTS.md) — bandwidth turned out not to be the bottleneck at 100k patients/year; grader headcount is |
+| **Public demo** | Gradio on HuggingFace Spaces (`app.py` at this repo's root is the Spaces entry point; `scripts/demo.py` is the local equivalent) | App code **ready**; actual Space creation and weight upload is a deliberate, explicit publishing step this project has not taken automatically — see the model card for the weights' research-use-only terms |
 | **CI/CD** | GitHub Actions — ruff, pytest, and an end-to-end single-image smoke test on CPU |
 | **Monitoring** | Audit log of every prediction + grader override; drift review before any retraining |
 | **Reproducibility** | Hydra configs, fixed seeds, sha256 data manifests; `make setup && make evaluate` reproduces the headline table |

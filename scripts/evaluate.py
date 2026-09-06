@@ -56,6 +56,14 @@ def main() -> int:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--target-sensitivity", type=float, default=0.90)
     p.add_argument("--bootstrap", type=int, default=2000)
+    p.add_argument(
+        "--tta",
+        action="store_true",
+        help="average each image's raw head output with its horizontal-flip pass "
+        "(docs/05_PROTOTYPE_SCOPE.md's planned 'single split + hflip TTA'). Reports "
+        "both with and without TTA on the identical images/model, not TTA alone, "
+        "so the Delta is directly attributable to averaging rather than a different sample.",
+    )
     p.add_argument("--out", default=None)
     args = p.parse_args()
 
@@ -105,10 +113,15 @@ def main() -> int:
     print(f"loss       : {args.loss} ({n_outputs} head outputs)")
     print(f"evaluating : {len(val_recs)} images\n")
 
-    outputs_all, targets_all = [], []
+    outputs_all, outputs_tta_all, targets_all = [], [], []
     with torch.no_grad():
         for i, (x, y) in enumerate(dl, 1):
-            outputs_all.append(model(x.to(device)).float().cpu())
+            x = x.to(device)
+            out = model(x).float().cpu()
+            outputs_all.append(out)
+            if args.tta:
+                out_flipped = model(torch.flip(x, dims=[3])).float().cpu()
+                outputs_tta_all.append((out + out_flipped) / 2.0)
             targets_all.append(y.numpy())
             if i % 20 == 0:
                 print(f"  {i * args.batch_size}/{len(val_recs)}", flush=True)
@@ -116,6 +129,22 @@ def main() -> int:
     outputs = torch.cat(outputs_all)
     targets = np.concatenate(targets_all)
     preds, p_ref = decode_output(outputs, args.loss)
+
+    tta_result = None
+    if args.tta:
+        outputs_tta = torch.cat(outputs_tta_all)
+        preds_tta, p_ref_tta = decode_output(outputs_tta, args.loss)
+        qwk_tta, qwk_tta_lo, qwk_tta_hi = bootstrap_ci(
+            quadratic_weighted_kappa, targets, preds_tta, n_resamples=args.bootstrap, seed=args.seed
+        )
+        acc_tta = float((preds_tta == targets).mean())
+        tta_result = {
+            "qwk": qwk_tta,
+            "qwk_ci": [qwk_tta_lo, qwk_tta_hi],
+            "accuracy": acc_tta,
+            "predictions": preds_tta.tolist(),
+            "referable_score": p_ref_tta.tolist(),
+        }
 
     qwk, qwk_lo, qwk_hi = bootstrap_ci(
         quadratic_weighted_kappa, targets, preds, n_resamples=args.bootstrap, seed=args.seed
@@ -166,6 +195,36 @@ def main() -> int:
     for i, row in enumerate(cm):
         print(f"  {i}   " + "".join(f"{v:>7}" for v in row))
     print("=" * 66)
+
+    if tta_result is not None:
+        from scipy import stats as scipy_stats
+
+        print("\nTTA (hflip-averaged), same images/model, for direct comparison:")
+        print(
+            f"  QWK (5-class)          {tta_result['qwk']:.4f}   "
+            f"95% CI [{tta_result['qwk_ci'][0]:.4f}, {tta_result['qwk_ci'][1]:.4f}]"
+        )
+        print(f"  Accuracy               {tta_result['accuracy']:.4f}")
+        # McNemar on paired exact-grade correctness -- same test scripts/compare.py
+        # already uses for model-vs-model comparisons, here applied to the SAME
+        # model with vs. without TTA on the SAME images.
+        correct_no_tta = preds == targets
+        correct_tta = np.array(tta_result["predictions"]) == targets
+        tta_only = int((~correct_no_tta & correct_tta).sum())
+        no_tta_only = int((correct_no_tta & ~correct_tta).sum())
+        n_discordant = tta_only + no_tta_only
+        p_mcnemar = (
+            float(
+                min(1.0, 2 * scipy_stats.binom.cdf(min(tta_only, no_tta_only), n_discordant, 0.5))
+            )
+            if n_discordant
+            else 1.0
+        )
+        print(
+            f"  McNemar vs. no-TTA: TTA-only-correct={tta_only}, "
+            f"no-TTA-only-correct={no_tta_only}, p={p_mcnemar:.4f}"
+        )
+        print("=" * 66)
     print("\nNOTE: threshold selected on the SAME split it is scored on, so these")
     print("are optimistic. The honest number comes from the locked external test")
     print("set in Phase 8.")
@@ -201,6 +260,7 @@ def main() -> int:
                 "targets": targets.tolist(),
                 "predictions": preds.tolist(),
                 "referable_score": p_ref.tolist(),
+                "tta": tta_result,
                 "per_class_recall": {
                     CLASS_NAMES[c]: (
                         float((preds[targets == c] == c).mean()) if (targets == c).any() else None
