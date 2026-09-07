@@ -18,15 +18,28 @@ __all__ = ["build_interface"]
 
 
 def _format_summary(result: PredictionResult) -> str:
+    """Real bug found manually driving the live Space (2026-09-07): this used
+    to branch on `not q.usable` alone, so checking "Grade anyway if quality
+    gate rejects" and forcing a real grade through (`result.grade` is not
+    None) still displayed only the rejection reasons and never the grade --
+    `run_pipeline` had computed it correctly, this function just never showed
+    it. Branching on `result.grade is None` instead handles both real cases:
+    genuinely no grade (rejected, not forced) and a forced grade on
+    known-poor-quality input (still shown, with the quality warning kept
+    visible above it rather than silently dropped)."""
     q = result.quality
     lines = [
         f"**Quality:** sharpness {q.sharpness:.0f} | brightness {q.mean_brightness:.0f} | "
         f"field-of-view {q.fov_fraction:.0%}"
     ]
     if not q.usable:
-        lines.append("\n**REJECTED -- recapture requested.** Reasons:")
+        lines.append("\n**Quality gate flagged this image.** Reasons:")
         lines.extend(f"- {r}" for r in q.reasons)
+    if result.grade is None:
+        lines.insert(1, "\n**REJECTED -- recapture requested.**")
         return "\n".join(lines)
+    if not q.usable:
+        lines.append("\n**Graded anyway -- interpret with extra caution.**")
 
     calib_label = "temperature-scaled" if result.calibrated else "uncalibrated"
     lines.append(f"\n### Grade {result.grade}: {result.grade_name}")
