@@ -23,16 +23,11 @@
 > including the ones that came in below target, reported the same way as the ones that didn't.
 > No unmeasured number is presented as a result.
 >
-> **Try it live**: [huggingface.co/spaces/adarshcod30/drdetect-dr-screening](https://huggingface.co/spaces/adarshcod30/drdetect-dr-screening).
-> Free-tier Gradio Spaces now run on HF's shared ZeroGPU hardware rather than free CPU-basic, which
-> needed three real fixes beyond just uploading the code (an `import spaces` registration
-> requirement, a dummy never-called `@spaces.GPU` function ZeroGPU's startup check requires, and
-> forcing `device="cpu"` explicitly because `torch.cuda.is_available()` reports `True` there even
-> outside an actual GPU grant) — plus one genuine bug in this project's own code that deploying it
-> surfaced: Grad-CAM's target-class indexing assumed a 5-way head and crashed on the released
-> regression-loss model's single-output head the first time it predicted a non-zero grade,
-> fixed and covered by a new regression test (`src/drdetect/serve/pipeline.py`,
-> `tests/integration/test_serve_pipeline.py`).
+> **Try it live**: [huggingface.co/spaces/adarshcod30/drdetect-dr-screening](https://huggingface.co/spaces/adarshcod30/drdetect-dr-screening),
+> on HF's free shared ZeroGPU tier. Shipping it took three platform-specific fixes and surfaced
+> two genuine bugs in this project's own code, both found only by manually driving the live
+> Space — see [Shipping the live demo](#shipping-the-live-demo-three-platform-fixes-and-two-real-bugs)
+> under Deployment & Infrastructure.
 
 ---
 
@@ -47,7 +42,6 @@
 - [Results & Model Performance](#results--model-performance)
 - [Deployment & Infrastructure](#deployment--infrastructure)
 - [Prototype Scope](#prototype-scope-tier-p)
-- [Phase 1 Results](docs/06_PHASE1_RESULTS.md)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Usage](#usage)
@@ -609,13 +603,44 @@ setting frees an extra ~2,236 grader-hours/year but more than doubles the wrong-
 (0.85%→1.90% of auto-cleared cases, i.e. ~489→1,733 patients/year with true grade >0 told "no
 follow-up needed"). Full method and every scenario: [`docs/20_PHASE7_SIMULATION_RESULTS.md`](docs/20_PHASE7_SIMULATION_RESULTS.md).
 
+### Phase 8 ablation grid — completing the resolution/loss rows, on internal validation only
+
+Four more single-split configurations, closing out the remaining rows of [§7's ablation
+table](docs/01_PROJECT_ANALYSIS.md#7-the-ablation-that-answers-integrated--single-technique):
+the resolution floor never tried, one preprocessing hypothesis, and two ordinal losses that
+already had working code but had never been run as a dedicated row.
+
+| Configuration | QWK | McNemar vs. baseline (exact grade) | Referable AUC (DeLong) |
+|---|---|---|---|
+| Baseline (512px, CE, ImageNet init) | 0.8967 | — | 0.9755 |
+| 224px, CE | 0.8844 | p=0.064, baseline ahead | 0.9678, p=0.181 |
+| + CLAHE, 512px | 0.8984 | **p=0.899 — no real difference** | 0.9739, p=0.710 |
+| **+ regression loss**, 512px | **0.9147** | **p=0.023, baseline ahead** (worse exact-grade accuracy) | 0.9815, p=0.097 |
+| + distance-aware CE, 512px | 0.8944 | **p=0.0012, baseline ahead** | 0.9770, p=0.651 |
+
+CLAHE's 0.8984 looks like a small win over 0.8967 — until McNemar shows the two models are
+statistically indistinguishable (p=0.899) on the same images; **CLAHE does not ship** as a
+preprocessing default on this result. Regression loss is the more interesting case: it is the
+first of this project's 17 total ablation configurations (13 in Phase 3, 4 here) to clear QWK
+0.90, yet it is *significantly worse* at getting the exact grade right (81.3% vs. baseline's
+84.3% raw accuracy, p=0.023) — a real, mechanistically-explained trade-off, not noise:
+regression's errors land one grade off instead of occasionally jumping two, which QWK's
+quadratic penalty rewards and raw accuracy punishes. Internal validation alone cannot resolve
+which model is actually better — referable-DR AUC, arguably the metric that matters
+operationally, shows no significant difference either way (DeLong p=0.097). **Rather than pick
+one on ambiguous internal evidence, both the baseline and the regression-loss model are carried
+forward as finalists** into the one locked external look below; 224px and distance-aware CE are
+dropped, both significantly behind with no compensating strength. Full method and the
+§7-vs-§8.2 methodological note on why this grid runs on internal data while the next section
+runs once, externally: [`docs/21_PHASE8_ABLATION_RESULTS.md`](docs/21_PHASE8_ABLATION_RESULTS.md).
+
 ### Phase 8 locked external validation — run once, and the drop was real
 
 The result the whole project was built to produce, and the only evaluation ever run against
 Messidor-2 and IDRiD's grading test split (1,847 images total). Two finalists went in — the
-baseline and a regression-loss variant that internal validation couldn't cleanly decide between
-(see the Phase 3 ablation section above) — precisely so this external look could be the
-tie-breaker instead of another round of internal tuning. **It was**: referable-DR AUC 0.9242
+baseline and the regression-loss variant the ablation grid above couldn't cleanly decide between
+— precisely so this external look could be the tie-breaker instead of another round of internal
+tuning. **It was**: referable-DR AUC 0.9242
 (regression) vs. 0.8878 (baseline), DeLong p=6.1×10⁻¹⁰ — decisive, and in the opposite direction
 from what the internal exact-grade comparison would have predicted. **Regression loss is the
 model this project would release.**
@@ -677,14 +702,43 @@ test set with significance tests — is specified in
 | Concern | Approach | Status |
 |---|---|---|
 | **Training** | All models trained locally on an Apple M4 (16 GB) via PyTorch MPS, from ImageNet init | **Done** for every checkpoint in this project. Kaggle/EyePACS pretraining was investigated in Phase 3 and found not runnable on local compute as-is — documented as an open gap, not silently dropped (docs/07) |
-| **Model export** | PyTorch → ONNX, verified for numerical parity (`scripts/export_onnx.py`) | **Done** — max abs diff 2.15e-06 against the PyTorch module on a real image. CoreML/TFLite export (for an eventual on-device capture app) is unbuilt, planned future work |
+| **Model export** | PyTorch → ONNX, verified for numerical parity (`scripts/export_onnx.py`) | **Done** — re-run against the actual released checkpoint, max abs diff **2.4×10⁻⁷** (effectively bit-exact). CoreML/TFLite export (for an eventual on-device capture app) is unbuilt, planned future work |
 | **Serving** | FastAPI + the existing Phase 2 pipeline — CPU-only, no GPU assumed | **Built and tested**; `/grade` endpoint wraps `load_grader`/`run_pipeline` (`src/drdetect/serve/api.py`, `tests/integration/test_serve_api.py`) |
-| **Containerisation** | A `Dockerfile` for `linux/amd64` + `linux/arm64` was built and began an image build successfully | **Descoped by decision, not abandoned** — cut before a full build/push to keep this project's footprint on its own development machine minimal; the FastAPI service above ships and runs directly instead |
+| **Containerisation** | A `Dockerfile` for `linux/amd64` + `linux/arm64` was built and began an image build successfully | **Descoped by decision, not abandoned** — cut before a full build/push to keep this project's footprint on its own development machine minimal (see [`docs/03_TECH_STACK.md`](docs/03_TECH_STACK.md)'s own annotation); the FastAPI service above ships and runs directly instead |
 | **Connectivity** | Store-and-forward queue modelled explicitly in the Phase 7 simulation (1–10 Mbps rural links, per-camp outage injection) | **Modelled**, see [`docs/20_PHASE7_SIMULATION_RESULTS.md`](docs/20_PHASE7_SIMULATION_RESULTS.md) — bandwidth turned out not to be the bottleneck at 100k patients/year; grader headcount is |
-| **Public demo** | Gradio on HuggingFace Spaces, free ZeroGPU tier (`app.py` at this repo's root is the Spaces entry point; `scripts/demo.py` is the local equivalent) | **Live**: [huggingface.co/spaces/adarshcod30/drdetect-dr-screening](https://huggingface.co/spaces/adarshcod30/drdetect-dr-screening) — see the model card for the weights' research-use-only terms |
-| **CI/CD** | GitHub Actions — ruff, pytest, and an end-to-end single-image smoke test on CPU |
-| **Monitoring** | Audit log of every prediction + grader override; drift review before any retraining |
-| **Reproducibility** | Hydra configs, fixed seeds, sha256 data manifests; `make setup && make evaluate` reproduces the headline table |
+| **Public demo** | Gradio on HuggingFace Spaces, free **ZeroGPU** tier (`app.py` at this repo's root is the Spaces entry point; `scripts/demo.py` is the local equivalent) | **Live**: [huggingface.co/spaces/adarshcod30/drdetect-dr-screening](https://huggingface.co/spaces/adarshcod30/drdetect-dr-screening) — see below for what shipping it actually took |
+| **Model weights** | Released alongside the code, not bundled in this repo | **Live** on [HuggingFace Hub](https://huggingface.co/adarshcod30/drdetect-dr-screening) and mirrored as a [GitHub Release](https://github.com/adarshcod30/Diabetic-Retinopathy-Detection/releases/tag/v1.0) — `best.ckpt` + a parity-verified ONNX export, research-use-only licence |
+| **CI/CD** | GitHub Actions (`.github/workflows/ci.yml`) — `ruff check`, `ruff format --check`, then `pytest` with coverage, on every push/PR | **Done** |
+| **Monitoring** | An audit log of every prediction + grader override, feeding drift review before retraining, is part of the system design (see the architecture diagram above) | **Designed, not built** — no deployed instance exists yet to log against; stated here as an honest gap, not implied as shipped |
+| **Reproducibility** | Hydra configs, fixed seeds (42 throughout), sha256 data manifests; `make setup && make evaluate` reproduces the headline table from a clean clone | **Done** |
+
+### Shipping the live demo: three platform fixes and two real bugs
+
+Getting from "code pushed" to "actually serving requests" on HF's free ZeroGPU tier needed three
+fixes beyond the code itself, each diagnosed from the Space's own runtime error, not guessed:
+`import spaces` early (its absence silently stopped the app after a clean startup); a dummy,
+never-called `@spaces.GPU`-decorated function (ZeroGPU's startup check requires one to exist,
+whether or not it's used — this model is CPU-only throughout); and `device="cpu"` passed
+explicitly to `build_interface`, because `torch.cuda.is_available()` reports `True` on ZeroGPU
+even outside an actual GPU grant, so auto-detection picked "cuda" and crashed the first real
+request.
+
+Deploying it also surfaced two genuine bugs in this project's own code — both found only by
+**manually using the live Space as a real visitor would**, not by the existing 258-test suite,
+because every prior test used `loss_name="ce"` exclusively and none exercised the
+quality-rejected-but-forced UI path:
+
+1. **Grad-CAM crashed on the released (regression-loss) checkpoint.** `pytorch_grad_cam`'s
+   `ClassifierOutputTarget` indexes directly into the model's raw output, which equals the
+   decoded grade only for 5-way heads — the regression head has one output. Fixed by clamping
+   the CAM target to the head's actual output count in `run_pipeline`
+   (`src/drdetect/serve/pipeline.py`), covered by a new parametrised test across all four loss
+   heads (`tests/integration/test_serve_pipeline.py`).
+2. **The demo silently discarded a forced grade.** Checking "Grade anyway if quality gate
+   rejects" correctly made the pipeline compute a real grade, but `_format_summary`
+   (`src/drdetect/serve/demo.py`) branched on quality alone and never looked at whether a grade
+   existed — so the UI kept showing "REJECTED" regardless. Fixed to branch on `result.grade is
+   None` instead, with a new test file (`tests/unit/test_demo.py`) that had zero prior coverage.
 
 ---
 
@@ -692,10 +746,14 @@ test set with significance tests — is specified in
 
 ```
 Diabetic-Retinopathy-Detection/
+├── app.py                    # HuggingFace Spaces entry point (fetches best.ckpt from HF Hub)
+├── MODEL_CARD.md              # Mitchell et al. 2019 structure, real Phase 8 external numbers
+├── DATASET_CARD.md            # provenance, licensing, what may/may not be redistributed
 ├── configs/                  # Hydra YAMLs — one per experiment; this IS the ablation grid
-├── data/                     # gitignored (manifests are committed)
-│   ├── raw/ interim/ processed/ external/
-│   └── manifests/            # sha256 + labels + patient_id
+├── data/                     # gitignored (manifests + README.md are committed)
+│   ├── raw/                  # empty — see raw/README.md for what was here and how to get it back
+│   ├── interim/ processed/ external/
+│   └── manifests/            # sha256 + labels + patient_id, the actual audit trail
 ├── docs/
 │   ├── 01_PROJECT_ANALYSIS.md    # what this is, why it is hard, what "done" means
 │   ├── 02_LITERATURE_REVIEW.md   # annotated evidence base
@@ -736,9 +794,10 @@ Diabetic-Retinopathy-Detection/
 │   └── simpy/                # district.py, parameters.py — Phase 7 screening-programme model
 │                              # (the optional Simulink mirror was cut, see roadmap scope-cut list)
 ├── scripts/                  # benchmark_device.py · benchmark_inference.py · preprocess.py · train.py · evaluate.py · evaluate_external.py · run_simulation_scenarios.py · export_onnx.py
-├── tests/
-├── models/                   # gitignored; released via GitHub Releases / HF Hub
-└── .github/workflows/
+├── tests/                     # 258 tests — unit + integration
+├── models/                   # gitignored; empty — see checkpoints/README.md
+│   └── checkpoints/README.md # what was trained here; the release is on HF Hub / GitHub instead
+└── .github/workflows/ci.yml  # ruff + pytest on every push/PR
 ```
 
 ---
@@ -773,6 +832,13 @@ python -c "import torch; print('MPS:', torch.backends.mps.is_available(), '| CUD
 
 ### Get the data
 
+**Raw datasets are not present in a fresh clone or on the development machine right now** —
+they were deleted on 2026-09-08 to reclaim local disk space (see
+[Disk footprint](#a-note-on-disk-footprint) below); they are not needed to use the released
+model, only to retrain or extend this project. Full re-acquisition instructions, exact sizes,
+and the sha256 manifest to verify a re-download matches what this project actually trained on:
+[`data/raw/README.md`](data/raw/README.md).
+
 Place your Kaggle token at `~/.config/kaggle/kaggle.json`, then:
 
 ```bash
@@ -782,6 +848,23 @@ bash scripts/download_data.sh --datasets aptos,idrid,drive
 > Messidor-2 requires accepting [ADCIS terms](https://www.adcis.net/en/third-party/messidor2/) and is
 > downloaded manually into `data/external/messidor2/`. **Do not** download EyePACS locally — it is
 > ~90 GB; train against it on Kaggle instead.
+
+### A note on disk footprint
+
+This project trained 43 separate experiment checkpoints (Phases 1–8) and downloaded four full
+datasets — together ~33 GB, which is *not* needed to use, audit, or read the results of the
+project, only to retrain or extend it. As of 2026-09-08, local disk was reclaimed: every raw
+dataset and every checkpoint except the released one were deleted (the released one is on HF
+Hub/GitHub, never only-local to begin with). What's preserved and git-tracked instead:
+
+- **The findings** — every checkpoint's real numbers are already written up with paired
+  significance tests in `docs/06`–`docs/22`; the checkpoint file itself was never needed to
+  read or trust the result.
+- **The sha256 manifests** (`data/manifests/*.csv`) — so a re-download can be verified
+  byte-identical to what was actually trained and evaluated on.
+- **Two archival notes** ([`data/raw/README.md`](data/raw/README.md),
+  [`models/checkpoints/README.md`](models/checkpoints/README.md)) recording exactly what was
+  here, its size, and how to regenerate it.
 
 ### Preprocess
 
@@ -793,28 +876,41 @@ python scripts/preprocess.py --dataset aptos --size 512 --pipeline bengraham
 
 ## Usage
 
+Local checkpoints and datasets are not bundled in this repo (see
+[Project Structure](#project-structure) and the disk-footprint note below) — the released
+checkpoint is fetched from HuggingFace Hub on demand:
+
+```bash
+python -c "from huggingface_hub import hf_hub_download; \
+  print(hf_hub_download('adarshcod30/drdetect-dr-screening', 'best.ckpt'))"
+```
+
 Grade a single image and produce an annotated PDF report (CPU-only, no GPU required):
 
 ```bash
-python scripts/predict.py --image path/to/fundus.jpg --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt
+python scripts/predict.py --image path/to/fundus.jpg \
+  --checkpoint <path from above> --loss regression
 ```
 
-Launch the interactive demo (uses MPS/CUDA if available):
+Launch the interactive demo locally (uses MPS/CUDA if available; `make demo` does the same
+with the release checkpoint/loss defaulted from the Makefile):
 
 ```bash
-python scripts/demo.py --checkpoint models/checkpoints/cv_baseline_fold1/best.ckpt
+make demo
 ```
 
-Run a training experiment (Hydra — every ablation row is a config override):
+Run a training experiment (every row of the ablation grid is one CLI flag change; `--folds
+0,1,2,3,4` runs 5-fold CV in one process):
 
 ```bash
-python scripts/train.py experiment=grading_effnetv2 data.image_size=512 loss=ordinal
+python scripts/train.py --size 512 --batch-size 4 --epochs 40 --lr 1e-4 --grad-clip 1.0 \
+  --folds 0 --run-name my_experiment
 ```
 
-Evaluate on the locked external test set:
+Reproduce the headline evaluation table from a clean clone (defaults to the release checkpoint):
 
 ```bash
-python scripts/evaluate.py --checkpoint models/checkpoints/best.ckpt --split external_test --bootstrap 2000
+make setup && make evaluate
 ```
 
 Run the screening-programme simulation:
@@ -823,8 +919,10 @@ Run the screening-programme simulation:
 python -m simulation.simpy.district --patients-per-year 100000 --graders 4 --bandwidth-mbps 5
 ```
 
-> Commands reflect the target interface; scripts land progressively through Phases 1–7. See
-> [`docs/04_ROADMAP.md`](docs/04_ROADMAP.md) for what exists today.
+All nine phases are complete — every command above is a real, working entry point, not a
+target interface. See [`docs/04_ROADMAP.md`](docs/04_ROADMAP.md) for the full phase-by-phase
+status and [`docs/22_PHASE8_VALIDATION_RESULTS.md`](docs/22_PHASE8_VALIDATION_RESULTS.md) for
+why `--loss regression` is the released default rather than the internally-stronger baseline.
 
 ---
 

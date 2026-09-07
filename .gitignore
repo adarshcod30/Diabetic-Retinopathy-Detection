@@ -9,6 +9,7 @@ data/**
 models/**
 !models/**/
 !models/**/.gitkeep
+!models/**/README.md
 *.pt
 *.pth
 *.onnx
