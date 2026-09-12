@@ -127,9 +127,20 @@ def main() -> int:
         action="store_true",
         help="continue from last.ckpt if present (optimiser, LR schedule and epoch are restored)",
     )
+    p.add_argument(
+        "--init-checkpoint",
+        default=None,
+        help="warm-start the backbone's WEIGHTS ONLY from another run's checkpoint (e.g. an "
+        "EyePACS-pretrained one) instead of ImageNet -- a fresh optimiser, LR schedule and "
+        "epoch count, unlike --resume, which restores all of that for the SAME run. Mutually "
+        "exclusive with --resume. Strips the 'model.' prefix Lightning's state_dict adds, same "
+        "as scripts/evaluate.py's loading path.",
+    )
     p.add_argument("--allow-ungrouped", action="store_true")
     args = p.parse_args()
 
+    if args.init_checkpoint and args.resume:
+        p.error("--init-checkpoint and --resume are mutually exclusive")
     if args.accum < 1:
         # Lightning treats a negative accum as 1 (ready %% -1 == 0 always holds),
         # so it would run silently at the wrong effective batch.
@@ -148,6 +159,7 @@ def main() -> int:
 
     import lightning as L
     import numpy as np
+    import torch
     from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
     from lightning.pytorch.loggers import CSVLogger
     from torch.utils.data import DataLoader
@@ -256,9 +268,29 @@ def main() -> int:
             return 1
         val_dl = DataLoader(val_ds, shuffle=False, **common)
 
-        model = build_model(
-            args.backbone, num_outputs=n_outputs, pretrained=True, freeze_bn=not args.no_freeze_bn
-        )
+        if args.init_checkpoint:
+            model = build_model(
+                args.backbone,
+                num_outputs=n_outputs,
+                pretrained=False,
+                freeze_bn=not args.no_freeze_bn,
+            )
+            ckpt = torch.load(args.init_checkpoint, map_location="cpu", weights_only=False)
+            state = ckpt.get("state_dict", ckpt)
+            state = {
+                k.removeprefix("model."): v for k, v in state.items() if k.startswith("model.")
+            }
+            missing, unexpected = model.load_state_dict(state, strict=False)
+            print(f"  init from {args.init_checkpoint}")
+            if missing or unexpected:
+                print(f"  WARNING: missing={missing} unexpected={unexpected}")
+        else:
+            model = build_model(
+                args.backbone,
+                num_outputs=n_outputs,
+                pretrained=True,
+                freeze_bn=not args.no_freeze_bn,
+            )
         total, trainable = count_parameters(model)
         print(f"  params: {total:,} total, {trainable:,} trainable")
         if not args.no_freeze_bn:

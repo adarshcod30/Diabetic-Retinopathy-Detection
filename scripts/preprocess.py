@@ -57,6 +57,36 @@ def load_aptos_labels(csv_path: Path) -> dict[str, int]:
         return {row["id_code"]: int(row["diagnosis"]) for row in csv.DictReader(fh)}
 
 
+def find_eyepacs(root: Path) -> tuple[Path, Path]:
+    """Locate the EyePACS (Kaggle 'diabetic-retinopathy-detection') images and
+    trainLabels.csv. Pretraining-only dataset (docs/07_PHASE3_RESULTS.md,
+    docs/05_PROTOTYPE_SCOPE.md Sec.3.2) -- never a locked-test candidate, and
+    never fetched by scripts/download_data.sh (its EyePACS branch refuses on
+    purpose, to keep the ~90GB full competition set off any local machine).
+    This function expects scripts/fetch_eyepacs_subset.py has already run
+    (on a remote GPU instance, not locally) and left a stratified subset
+    here, not the full competition dump.
+    """
+    for csv_path in root.rglob("trainLabels.csv"):
+        images = csv_path.parent / "train"
+        if images.is_dir():
+            return images, csv_path
+    raise FileNotFoundError(
+        f"Could not find trainLabels.csv + train/ under {root}.\n"
+        "Run scripts/fetch_eyepacs_subset.py on a remote instance first -- "
+        "never download the full ~90GB set locally (docs/05_PROTOTYPE_SCOPE.md Sec.3.2)."
+    )
+
+
+def load_eyepacs_labels(csv_path: Path) -> dict[str, int]:
+    """EyePACS trainLabels.csv: columns `image,level` -- image ids look like
+    '16_left'/'16_right' (<patient_id>_<eye>), level is the 0-4 ICDR grade,
+    same scale as APTOS/IDRiD/Messidor-2 despite the competition predating
+    the ICDR-grade branding APTOS uses."""
+    with open(csv_path, newline="") as fh:
+        return {row["image"]: int(row["level"]) for row in csv.DictReader(fh)}
+
+
 def find_messidor2(root: Path) -> tuple[Path, Path]:
     """Locate the extracted Messidor-2 images/ and the adjudicated grades CSV.
 
@@ -177,7 +207,7 @@ def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--dataset", default="aptos", choices=["aptos", "messidor2", "idrid"])
+    p.add_argument("--dataset", default="aptos", choices=["aptos", "messidor2", "idrid", "eyepacs"])
     p.add_argument(
         "--idrid-split",
         default="test",
@@ -208,6 +238,9 @@ def main() -> int:
     elif args.dataset == "idrid":
         images_dir, csv_path = find_idrid_grading(raw_root, args.idrid_split)
         labels = load_idrid_grading_labels(csv_path)
+    elif args.dataset == "eyepacs":
+        images_dir, csv_path = find_eyepacs(raw_root)
+        labels = load_eyepacs_labels(csv_path)
     else:
         images_dir, csv_path = find_aptos(raw_root)
         labels = load_aptos_labels(csv_path)
