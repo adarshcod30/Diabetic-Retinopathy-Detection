@@ -28,6 +28,12 @@
 > two genuine bugs in this project's own code, both found only by manually driving the live
 > Space — see [Shipping the live demo](#shipping-the-live-demo-three-platform-fixes-and-two-real-bugs)
 > under Deployment & Infrastructure.
+>
+> **Post-release GPU experimentation**: sponsored JarvisLabs.ai credits made real GPU training
+> possible for the first time after release. Two clean nulls (EyePACS pretraining, 1024px
+> resolution), a foundation model (RETFound) given a genuinely fair shot and still closed out,
+> and one real, externally-proven win — a 5-fold CNN ensemble, now what the live demo above
+> actually serves. Full writeup: [`docs/23_GPU_EXPERIMENTATION_RESULTS.md`](docs/23_GPU_EXPERIMENTATION_RESULTS.md).
 
 ---
 
@@ -210,6 +216,7 @@ still in the chair.
 | [EyePACS 2015](https://www.kaggle.com/c/diabetic-retinopathy-detection) | 88,702 | ICDR 0–4 (noisy) | US | Pretraining *(cloud-side only)* | Competition rules |
 | [IDRiD](https://ieee-dataport.org/open-access/indian-diabetic-retinopathy-image-dataset-idrid) | 516 | Grades + **pixel masks** + OD/fovea | **India** (Nanded) | Lesion segmentation, XAI ground truth | CC BY 4.0 |
 | [Messidor-2](https://www.adcis.net/en/third-party/messidor2/) | 1,748 | Adjudicated grades | France | **Locked external test** | ADCIS terms |
+| [DDR](https://huggingface.co/datasets/ctmedtech/DDR-dataset) | 3,759 (test split) | ICDR 0–4 (5=ungradable, excluded) | China (23 provinces) | **Second locked external test** — Messidor-2/IDRiD are spent | CC BY 4.0 |
 | [DRIVE](https://drive.grand-challenge.org/) | 40 | Vessel masks | Netherlands | Vessel segmentation | Research use |
 | EyeQ | 28,792 | Good / Usable / Reject | derived from EyePACS | Quality model | Research use |
 
@@ -245,12 +252,19 @@ disc–fovea axis), and distance-to-fovea. These are the ICDR criteria expressed
 improve the grade and simultaneously become the explanation.
 
 **Training approach.**
-- Two-stage: pretrain on EyePACS (or initialise from [RETFound](https://www.nature.com/articles/s41586-023-06555-x),
-  a masked-autoencoder foundation model trained on 1.6 M retinal images), then fine-tune on APTOS.
 - **Ordinal loss**, not cross-entropy — DR grades are ordered, and recent SOTA
   ([Dual-SwinOrd](https://www.mdpi.com/2306-5354/13/4/374), AOR-DR) confirms this matters.
-- **Resolution is the dominant hyperparameter.** A microaneurysm is ~10 px on a 4288 px image; at
-  224 px it is sub-pixel and physically destroyed. Sweep 384/512/768 early.
+- **Resolution is the dominant hyperparameter** — in theory. A microaneurysm is ~10 px on a 4288 px
+  image; at 224 px it is sub-pixel and physically destroyed. Measured across 384/512/768px *and*
+  1024px (four separate attempts across this project's history, most recently on a real GPU with a
+  proper same-backend control): **it has never once held up as a real effect** — see
+  [`docs/23_GPU_EXPERIMENTATION_RESULTS.md`](docs/23_GPU_EXPERIMENTATION_RESULTS.md).
+- **EyePACS pretraining and RETFound** (a masked-autoencoder foundation model trained on 1.6M
+  retinal images) were both real candidates for a two-stage warm-start, not just cited literature
+  — both were actually implemented, trained, and controlled for the training-backend effect
+  documented below. Neither beat the plain from-ImageNet baseline; RETFound was additionally given
+  a second, corrected attempt (proper layer-wise LR decay, matching its own published recipe) and
+  still didn't. Full numbers: [`docs/23_GPU_EXPERIMENTATION_RESULTS.md`](docs/23_GPU_EXPERIMENTATION_RESULTS.md).
 - **Patient-level splits** — both eyes of one patient must never straddle train and test.
 
 **Evaluation metrics.** Quadratic Weighted Kappa (grading); sensitivity and specificity at the
@@ -659,6 +673,26 @@ every number, the failure-mode gallery (both models' worst errors independently 
 one image as severe disease), and the published-benchmark comparison table:
 [`docs/22_PHASE8_VALIDATION_RESULTS.md`](docs/22_PHASE8_VALIDATION_RESULTS.md).
 
+### Post-release GPU experimentation — two nulls, one real ensemble win
+
+Not a numbered phase — it happened after release, using sponsored JarvisLabs.ai GPU credits, the
+first real GPU training this project ever had access to. Full writeup, every number, and the
+training-backend effect that had to be understood first:
+[`docs/23_GPU_EXPERIMENTATION_RESULTS.md`](docs/23_GPU_EXPERIMENTATION_RESULTS.md).
+
+| Question | Answer | Real number |
+|---|---|---|
+| Does a cloud GPU reproduce the local result? | **No — a real, still-unexplained ~0.04 QWK backend gap** | Exhaustively investigated (TF32, package versions, seeds) — never root-caused. Reproduces `docs/07` Result 14 a third time, on a third backend pairing |
+| Does EyePACS pretraining help, backend-controlled? | **Null** | 0.9124 vs. 0.9158 control, p=0.590 |
+| Does 1024px resolution help, backend-controlled? | **Null** (4th time tested project-wide) | p=0.575 vs. control |
+| Does RETFound (ViT-L, MAE-pretrained) beat the CNN, given its own correct recipe? | **No** | 0.8917 ± 0.0115 vs. CNN's 0.9094 ± 0.0079 — ranges barely overlap |
+| Does a 5-fold CNN ensemble beat the single shipped checkpoint? | **Yes — real and significant** | Referable AUC 0.899 vs. 0.891, DeLong p=0.038, on a new external test set (DDR) |
+
+The ensemble is the one finding that changed anything real: it's what the live demo linked at the
+top of this README actually serves now, not the single checkpoint MODEL_CARD.md describes (that
+checkpoint is still the individually-benchmarked, externally-validated release artifact — the
+ensemble is 5 of its own cross-validation folds, run together).
+
 ### Remaining targets
 
 | Metric | Target | Benchmark it is measured against |
@@ -701,7 +735,7 @@ test set with significance tests — is specified in
 
 | Concern | Approach | Status |
 |---|---|---|
-| **Training** | All models trained locally on an Apple M4 (16 GB) via PyTorch MPS, from ImageNet init | **Done** for every checkpoint in this project. Kaggle/EyePACS pretraining was investigated in Phase 3 and found not runnable on local compute as-is — documented as an open gap, not silently dropped (docs/07) |
+| **Training** | Every released checkpoint trained locally on an Apple M4 (16 GB) via PyTorch MPS, from ImageNet init. Post-release, a sponsored JarvisLabs.ai GPU (A30/A100) ran EyePACS pretraining, RETFound fine-tuning, and a proper 5-fold CV — the first real GPU access this project had | **Done** — see [`docs/23_GPU_EXPERIMENTATION_RESULTS.md`](docs/23_GPU_EXPERIMENTATION_RESULTS.md) for what that GPU time actually found, including a real training-backend effect that has to be controlled for before trusting any local-vs-cloud comparison |
 | **Model export** | PyTorch → ONNX, verified for numerical parity (`scripts/export_onnx.py`) | **Done** — re-run against the actual released checkpoint, max abs diff **2.4×10⁻⁷** (effectively bit-exact). CoreML/TFLite export (for an eventual on-device capture app) is unbuilt, planned future work |
 | **Serving** | FastAPI + the existing Phase 2 pipeline — CPU-only, no GPU assumed | **Built and tested**; `/grade` endpoint wraps `load_grader`/`run_pipeline` (`src/drdetect/serve/api.py`, `tests/integration/test_serve_api.py`) |
 | **Containerisation** | A `Dockerfile` for `linux/amd64` + `linux/arm64` was built and began an image build successfully | **Descoped by decision, not abandoned** — cut before a full build/push to keep this project's footprint on its own development machine minimal (see [`docs/03_TECH_STACK.md`](docs/03_TECH_STACK.md)'s own annotation); the FastAPI service above ships and runs directly instead |
@@ -795,7 +829,8 @@ Diabetic-Retinopathy-Detection/
 │   ├── 19_PHASE6_REPORT_RESULTS.md  # lesion overlays, ICDR evidence, redesigned PDF report
 │   ├── 20_PHASE7_SIMULATION_RESULTS.md  # SimPy district model, graders-needed chart
 │   ├── 21_PHASE8_ABLATION_RESULTS.md  # resolution/CLAHE/ordinal-loss rows, paired tests
-│   └── 22_PHASE8_VALIDATION_RESULTS.md  # the locked external evaluation, run once
+│   ├── 22_PHASE8_VALIDATION_RESULTS.md  # the locked external evaluation, run once
+│   └── 23_GPU_EXPERIMENTATION_RESULTS.md  # post-release: two nulls, one real ensemble win
 ├── notebooks/                # exploration only — logic lives in src/
 ├── src/drdetect/
 │   ├── data/                 # datasets, patient-level splits, manifests
@@ -812,8 +847,8 @@ Diabetic-Retinopathy-Detection/
 ├── simulation/
 │   └── simpy/                # district.py, parameters.py — Phase 7 screening-programme model
 │                              # (the optional Simulink mirror was cut, see roadmap scope-cut list)
-├── scripts/                  # benchmark_device.py · benchmark_inference.py · preprocess.py · train.py · evaluate.py · evaluate_external.py · run_simulation_scenarios.py · export_onnx.py
-├── tests/                     # 258 tests — unit + integration
+├── scripts/                  # benchmark_device.py · benchmark_inference.py · preprocess.py · train.py · evaluate.py · evaluate_external.py · evaluate_ddr.py · fetch_eyepacs_subset.py · fetch_ddr_testset.py · run_simulation_scenarios.py · export_onnx.py
+├── tests/                     # 266 tests — unit + integration
 ├── models/                   # gitignored; empty — see checkpoints/README.md
 │   └── checkpoints/README.md # what was trained here; the release is on HF Hub / GitHub instead
 └── .github/workflows/ci.yml  # ruff + pytest on every push/PR
@@ -865,8 +900,12 @@ bash scripts/download_data.sh --datasets aptos,idrid,drive
 ```
 
 > Messidor-2 requires accepting [ADCIS terms](https://www.adcis.net/en/third-party/messidor2/) and is
-> downloaded manually into `data/external/messidor2/`. **Do not** download EyePACS locally — it is
-> ~90 GB; train against it on Kaggle instead.
+> downloaded manually into `data/external/messidor2/`. **Do not** download EyePACS locally — the
+> competition's own train archive is a genuine multi-disk zip split that doesn't extract cleanly
+> even on a rented instance (verified directly, see `docs/23_GPU_EXPERIMENTATION_RESULTS.md`);
+> `scripts/fetch_eyepacs_subset.py` pulls a working ~7.8GB re-host instead, and is meant to run on
+> a rented GPU instance, never locally. DDR (this project's second external test set) is a separate
+> ~3GB pull via `scripts/fetch_ddr_testset.py`, needed only to reproduce the GPU-phase results.
 
 ### A note on disk footprint
 
@@ -925,6 +964,19 @@ Run a training experiment (every row of the ablation grid is one CLI flag change
 python scripts/train.py --size 512 --batch-size 4 --epochs 40 --lr 1e-4 --grad-clip 1.0 \
   --folds 0 --run-name my_experiment
 ```
+
+Fine-tune RETFound (or any other ViT backbone) with its own layer-wise LR decay recipe instead of
+the CNN's flat learning rate — see [`docs/23_GPU_EXPERIMENTATION_RESULTS.md`](docs/23_GPU_EXPERIMENTATION_RESULTS.md)
+for why this needs a real GPU and still doesn't beat the shipped CNN:
+
+```bash
+python scripts/train.py --backbone "hf_hub:bitfount/RETFound_MAE" --size 224 --loss regression \
+  --lr 3.125e-4 --layer-decay 0.65 --weight-decay 0.05 --drop-path-rate 0.2 --folds 0
+```
+
+`scripts/demo.py`'s `--checkpoint` also accepts a comma-separated list to run as an ensemble
+locally — `make demo` inherits this via `CHECKPOINT=path1,path2,...`, the same convention the
+live Space (`app.py`) and `scripts/evaluate_ddr.py` both use.
 
 Reproduce the headline evaluation table from a clean clone (defaults to the release checkpoint):
 
@@ -996,7 +1048,7 @@ So the scale-down cuts compute and keeps every image:
 | | Full (Tier-F) | **Prototype (Tier-P)** |
 |---|---|---|
 | APTOS / IDRiD / DRIVE / Messidor-2 | full | **full — unchanged** |
-| EyePACS pretraining | 88,702 | 12–15k stratified, cached on Kaggle |
+| EyePACS pretraining | 88,702 | 15k stratified subset — run on a rented GPU (`docs/23`), found null |
 | Backbone | EfficientNetV2-S | EfficientNet-B0 |
 | Resolution | 768 px | 512 px *(floor — below this microaneurysms vanish)* |
 | Cross-validation | 5-fold + TTA | single split + hflip TTA |
