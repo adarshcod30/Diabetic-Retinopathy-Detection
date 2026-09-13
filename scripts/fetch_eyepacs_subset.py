@@ -1,19 +1,42 @@
 #!/usr/bin/env python3
 """Pull a stratified EyePACS subset for pretraining -- REMOTE INSTANCE ONLY.
 
+Why the images come from a re-hosted Kaggle DATASET, not the competition zip
+-----------------------------------------------------------------------------
+The original competition (`diabetic-retinopathy-detection`) ships train
+images as a genuine multi-disk PKZIP split (train.zip.001-005): each
+volume's local file headers are offset relative to THAT volume, not to one
+continuous stream. Verified directly against the real files: a plain `cat`
+of the 5 parts produces "invalid zip file with overlapped components", and
+both Info-ZIP's own `-s 0`/`-s-` split-join and a custom Python multi-part
+virtual stream reader correctly parse the central directory (35,127 real
+entries) but fail on a genuine per-file read with a seek/offset error --
+Python's zipfile module does not resolve true multi-disk offsets, and
+Info-ZIP 3.0 (2008) has known Zip64-split-join bugs. Rather than hand-write
+a multi-disk PKZIP offset resolver, this uses `tanlikesmath/
+diabetic-retinopathy-resized` (589 votes, since 2019) -- a well-established
+community re-host of the SAME images under the SAME filenames
+(`<patient>_<left|right>.jpeg`), as one normally-packaged archive. The
+labels still come from the original competition's own trainLabels.csv
+(a small, separate, single-file download that worked fine from the start)
+-- only the multi-disk-split image archive is swapped out.
+
 Why this is a separate script, not part of download_data.sh
 -------------------------------------------------------------
 download_data.sh's own EyePACS branch refuses on purpose: the full
-competition set is ~90GB and was never meant to touch this project's local
-machine (docs/05_PROTOTYPE_SCOPE.md Sec.3.2). This script does the thing
-that section actually proposed -- download the full set somewhere with
-enough disk, stratify-sample ~15k images preserving the grade distribution,
-keep only that -- just on a rented GPU instance instead of a Kaggle
-notebook, since the machine running this now has its own real disk and
-Kaggle CLI access rather than needing the notebook-specific workaround.
+competition set is ~90GB (train+test+extras) and was never meant to touch
+this project's local machine (docs/05_PROTOTYPE_SCOPE.md Sec.3.2). This
+script does the thing that section actually proposed -- download the full
+train set somewhere with enough disk, stratify-sample ~15k images
+preserving the grade distribution, keep only that -- just on a rented GPU
+instance instead of a Kaggle notebook, since the machine running this now
+has its own real disk and Kaggle CLI access rather than needing the
+notebook-specific workaround.
 
 Run this ON the remote instance (via `jl run` or `jl exec`), never locally.
-It refuses to run below --min-free-gb (default 60) as the same kind of
+It refuses to run below --min-free-gb (default 30, sized for the ~7.8GB
+image re-host download plus its own ~7.8GB extracted copy existing at once)
+as the same kind of
 guard download_data.sh already uses, so a mistaken local run fails loudly
 instead of quietly filling a laptop's disk.
 
@@ -82,42 +105,68 @@ def find_kaggle_credentials() -> None:
     )
 
 
+LABELS_FILE = "trainLabels.csv.zip"
+IMAGES_DATASET = "tanlikesmath/diabetic-retinopathy-resized"
+IMAGES_ARCHIVE = "diabetic-retinopathy-resized.zip"
+# The archive's own internal layout, verified via `kaggle datasets files`
+# (2026-09-12): images sit two directories deep, not flat.
+IMAGES_NESTED_DIR = "resized_train/resized_train"
+
+
 def download_and_extract(dest: Path, kaggle_bin: list[str]) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    zip_glob = list(dest.glob(f"{COMPETITION}*.zip"))
-    if not zip_glob and not (dest / "train").exists():
-        print(f"Downloading {COMPETITION} (this is the full ~90GB competition set)...")
-        try:
-            run([*kaggle_bin, "competitions", "download", "-c", COMPETITION, "-p", str(dest)])
-        except subprocess.CalledProcessError as e:
-            sys.exit(
-                f"Download failed (exit {e.returncode}). If this is a 403, accept the "
-                f"competition rules first at https://www.kaggle.com/c/{COMPETITION}/rules "
-                "-- a valid API token alone is not sufficient for competition data."
-            )
-        zip_glob = list(dest.glob(f"{COMPETITION}*.zip"))
+
+    if not (dest / "trainLabels.csv").exists():
+        if not (dest / LABELS_FILE).exists():
+            print(f"Downloading {LABELS_FILE} (labels, from the original competition)...")
+            try:
+                run(
+                    [
+                        *kaggle_bin,
+                        "competitions",
+                        "download",
+                        "-c",
+                        COMPETITION,
+                        "-f",
+                        LABELS_FILE,
+                        "-p",
+                        str(dest),
+                    ]
+                )
+            except subprocess.CalledProcessError as e:
+                sys.exit(
+                    f"Download of {LABELS_FILE} failed (exit {e.returncode}). If this is a "
+                    f"403, accept the competition rules first at "
+                    f"https://www.kaggle.com/c/{COMPETITION}/rules -- a valid API token alone "
+                    "is not sufficient for competition data."
+                )
+        run(["unzip", "-q", "-o", str(dest / LABELS_FILE), "-d", str(dest)])
 
     if not (dest / "train").exists():
-        print(f"Extracting {len(zip_glob)} archive(s)...")
-        for z in zip_glob:
-            run(["unzip", "-q", "-o", str(z), "-d", str(dest)])
-        # Historically this competition's train images ship as further nested
-        # per-part zips (train.zip.001 etc.) inside the outer download rather
-        # than flat files -- extract anything that looks like it, once, and
-        # fail loudly with what was actually found if the layout has changed
-        # since this was written, rather than silently proceeding on 0 images.
-        inner_zips = list(dest.rglob("train*.zip*"))
-        for z in inner_zips:
-            if z.suffix == ".zip":
-                run(["unzip", "-q", "-o", str(z), "-d", str(dest)])
-        if not (dest / "train").exists():
+        archive = dest / IMAGES_ARCHIVE
+        if not archive.exists():
+            print(f"Downloading {IMAGES_DATASET} (images, ~7.8GB re-host of the same files)...")
+            try:
+                run([*kaggle_bin, "datasets", "download", "-d", IMAGES_DATASET, "-p", str(dest)])
+            except subprocess.CalledProcessError as e:
+                sys.exit(f"Download of {IMAGES_DATASET} failed (exit {e.returncode}).")
+        print("Extracting images...")
+        run(["unzip", "-q", "-o", str(archive), "-d", str(dest)])
+        archive.unlink()
+        nested = dest / IMAGES_NESTED_DIR
+        if not nested.is_dir():
             candidates = sorted(p.name for p in dest.iterdir())
             sys.exit(
-                f"Extraction did not produce a train/ directory under {dest}.\n"
+                f"Expected images under {nested} after extraction.\n"
                 f"What's actually there: {candidates}\n"
-                "The competition's packaging may have changed since this script was "
-                "written -- inspect the archive contents and adjust extraction above."
+                f"{IMAGES_DATASET}'s own layout may have changed since this script was "
+                "written -- inspect the archive and adjust IMAGES_NESTED_DIR above."
             )
+        nested.rename(dest / "train")
+        # resized_train/ (now empty except the moved-out subdir) and the
+        # labels zip are no longer needed once train/ exists.
+        (dest / "resized_train").rmdir()
+        (dest / LABELS_FILE).unlink(missing_ok=True)
 
 
 def stratified_sample(labels_csv: Path, n_subset: int, seed: int) -> dict[str, int]:
@@ -179,11 +228,11 @@ def main() -> int:
     p.add_argument("--n-subset", type=int, default=15000, help="Tier-P default (docs/05 Sec.3.2)")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--raw-dir", default="data/raw")
-    p.add_argument("--min-free-gb", type=float, default=60.0)
+    p.add_argument("--min-free-gb", type=float, default=30.0)
     p.add_argument(
         "--keep-full-download",
         action="store_true",
-        help="skip cleanup of the full ~90GB download after sampling (default: delete it)",
+        help="skip cleanup of the downloaded images archive after sampling (default: delete it)",
     )
     args = p.parse_args()
 
