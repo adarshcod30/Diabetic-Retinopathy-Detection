@@ -87,6 +87,42 @@ def load_eyepacs_labels(csv_path: Path) -> dict[str, int]:
         return {row["image"]: int(row["level"]) for row in csv.DictReader(fh)}
 
 
+def find_ddr(root: Path) -> tuple[Path, Path]:
+    """Locate DDR's test-split images and labels. A NEW external test set
+    (docs/22_PHASE8_VALIDATION_RESULTS.md's Messidor-2/IDRiD locked split is
+    permanently spent) -- expects scripts/fetch_ddr_testset.py has already run.
+    """
+    images = root / "test"
+    label_file = root / "test.txt"
+    if images.is_dir() and label_file.exists():
+        return images, label_file
+    raise FileNotFoundError(
+        f"Could not find test/ + test.txt under {root}.\nRun: python scripts/fetch_ddr_testset.py"
+    )
+
+
+def load_ddr_labels(label_file: Path) -> dict[str, int]:
+    """DDR's test.txt: one `<filename>.jpg <grade>` pair per line. DDR's own
+    grade scale is 0-5, not 0-4 -- grade 5 is "ungradable", not a severity
+    beyond PDR. Excluded here rather than kept as label=5, the same discipline
+    load_messidor2_labels already applies to its own gradable-only filter: a
+    locked test set must never silently include an ungradable image under a
+    placeholder ordinal label (it would corrupt QWK and inflate "referable"
+    counts, since >=2 would catch it too)."""
+    labels = {}
+    with open(label_file) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            name, grade = line.rsplit(" ", 1)
+            grade = int(grade)
+            if grade == 5:
+                continue
+            labels[Path(name).stem] = grade
+    return labels
+
+
 def find_messidor2(root: Path) -> tuple[Path, Path]:
     """Locate the extracted Messidor-2 images/ and the adjudicated grades CSV.
 
@@ -207,7 +243,9 @@ def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--dataset", default="aptos", choices=["aptos", "messidor2", "idrid", "eyepacs"])
+    p.add_argument(
+        "--dataset", default="aptos", choices=["aptos", "messidor2", "idrid", "eyepacs", "ddr"]
+    )
     p.add_argument(
         "--idrid-split",
         default="test",
@@ -241,6 +279,9 @@ def main() -> int:
     elif args.dataset == "eyepacs":
         images_dir, csv_path = find_eyepacs(raw_root)
         labels = load_eyepacs_labels(csv_path)
+    elif args.dataset == "ddr":
+        images_dir, csv_path = find_ddr(raw_root)
+        labels = load_ddr_labels(csv_path)
     else:
         images_dir, csv_path = find_aptos(raw_root)
         labels = load_aptos_labels(csv_path)
@@ -259,10 +300,10 @@ def main() -> int:
     # would silently glob past all of them with a lower-case-only pattern.
     patterns = ("*.png", "*.PNG", "*.jpg", "*.JPG", "*.jpeg", "*.JPEG")
     sources = sorted({p for pat in patterns for p in images_dir.glob(pat)})
-    if args.dataset in ("messidor2", "idrid"):
+    if args.dataset in ("messidor2", "idrid", "ddr"):
         # Ungradable/unlabelled images have no label to preprocess towards --
-        # and both are locked-test-set candidates, so they must be absent,
-        # not present as label=-1.
+        # and all three are external-test-set candidates, so they must be
+        # absent, not present as label=-1 (or, for DDR, its own label=5).
         before = len(sources)
         sources = [s for s in sources if s.stem.lower() in labels]
         print(f"  excluding {before - len(sources)} unlabelled image(s) (no adjudicated grade)")
