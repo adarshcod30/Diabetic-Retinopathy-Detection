@@ -86,7 +86,7 @@ def load_grader(
 
 def run_pipeline(
     raw_image_rgb: np.ndarray,
-    model: torch.nn.Module,
+    model: torch.nn.Module | list[torch.nn.Module],
     *,
     loss_name: str = "ce",
     size: int = 512,
@@ -98,7 +98,12 @@ def run_pipeline(
 
     Args:
         raw_image_rgb: HxWx3 uint8 RGB, as captured -- not preprocessed.
-        model: from `load_grader`.
+        model: one model from `load_grader`, or a list of them to run as an
+            ensemble -- raw outputs are averaged before decoding, the same
+            averaging-before-decode approach used across hflip TTA
+            (evaluate.py) and cross-checkpoint ensembles (evaluate_ddr.py).
+            A list of one model is a no-op, so callers never need to special
+            case the single-model path.
         skip_quality_gate: force grading through even on a rejected image.
             Used by the demo so a user can see *why* an image was flagged
             instead of only being refused a result.
@@ -109,6 +114,8 @@ def run_pipeline(
             is invariant to a positive rescaling) -- see
             scripts/calibrate.py for what temperature scaling is and why.
     """
+    models = [model] if isinstance(model, torch.nn.Module) else list(model)
+
     quality = assess_quality(raw_image_rgb)
     if not quality.usable and not skip_quality_gate:
         return PredictionResult(quality=quality)
@@ -117,7 +124,7 @@ def run_pipeline(
     tensor = build_transforms(size, train=False)(image=pre)["image"].unsqueeze(0).to(device)
 
     with torch.no_grad():
-        output = model(tensor)
+        output = sum(m(tensor) for m in models) / len(models)
     preds, _p_ref = decode_output(output.cpu(), loss_name)
     grade = int(preds[0])
 
@@ -138,7 +145,8 @@ def run_pipeline(
     # loss: a no-op for ce/distance_ce, and the only valid (and semantically
     # correct -- there is only one score to explain) choice for regression.
     cam_target = min(grade, outputs_for_loss(loss_name) - 1)
-    cam = generate_cam(model, tensor, target_class=cam_target)
+    cams = [generate_cam(m, tensor, target_class=cam_target) for m in models]
+    cam = np.mean(cams, axis=0).astype(np.float32)
     overlay = overlay_cam(pre, cam)
 
     return PredictionResult(

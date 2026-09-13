@@ -126,3 +126,54 @@ class TestCamTargetIndexAcrossLossHeads:
             cam_target = min(target_grade, outputs_for_loss("regression") - 1)
             assert cam_target == 0  # the only valid index into a 1-output head
             generate_cam(model, tensor, target_class=cam_target)  # must not raise
+
+
+class TestEnsembleInference:
+    """`run_pipeline` also accepts a list of models (the live demo's 5-fold
+    CNN ensemble, docs/../project memory: beats the single shipped checkpoint
+    on DDR referable AUC). Averaging happens before decode for both the grade
+    output and the Grad-CAM heatmap -- these check that plumbing, not
+    grading accuracy (same division of concern as the rest of this file)."""
+
+    def test_ensemble_of_one_matches_a_plain_single_model_call(self, textured_fundus):
+        """A list of one model must be a true no-op: same averaged output,
+        same decoded grade, same CAM -- not a special case that happens to
+        look similar. `.eval()` matters here: `build_model` alone leaves the
+        head's Dropout active (train mode is the nn.Module default), which
+        makes even two calls on the SAME model object stochastic -- exactly
+        what `load_grader` (the real caller) always fixes before inference."""
+        model = build_model("efficientnet_b0", num_outputs=5, pretrained=False, freeze_bn=True)
+        model.eval()
+        single = run_pipeline(textured_fundus, model, loss_name="ce", size=224)
+        ensembled = run_pipeline(textured_fundus, [model], loss_name="ce", size=224)
+        assert ensembled.grade == single.grade
+        assert ensembled.class_probs == pytest.approx(single.class_probs)
+        np.testing.assert_array_equal(ensembled.cam_overlay, single.cam_overlay)
+
+    def test_ensemble_averages_raw_outputs_before_decode(self, textured_fundus):
+        """Averaging must happen on raw logits before softmax, not on softmax
+        output afterward -- softmax(mean(logits)) != mean(softmax(logits))
+        in general, since softmax is non-linear. This is the same
+        averaging-before-decode convention already established for hflip TTA
+        (evaluate.py) and cross-checkpoint ensembles (evaluate_ddr.py); an
+        implementation that accidentally averaged post-softmax instead would
+        still produce a valid-looking probability vector, so a plain
+        "is it a valid distribution" check would not catch the bug -- this
+        recomputes the expected logit average independently and compares."""
+        from drdetect.data.dataset import build_transforms
+        from drdetect.enhance.preprocessing import preprocess
+
+        models = [
+            build_model("efficientnet_b0", num_outputs=5, pretrained=False, freeze_bn=True).eval()
+            for _ in range(2)
+        ]
+        result = run_pipeline(textured_fundus, models, loss_name="ce", size=224)
+        assert result.grade in {0, 1, 2, 3, 4}
+        assert abs(sum(result.class_probs) - 1.0) < 1e-4
+
+        pre = preprocess(textured_fundus, size=224, use_ben_graham=True)
+        tensor = build_transforms(224, train=False)(image=pre)["image"].unsqueeze(0)
+        with torch.no_grad():
+            expected_logits = sum(m(tensor) for m in models) / len(models)
+        expected_probs = torch.softmax(expected_logits, dim=1)[0].tolist()
+        assert result.class_probs == pytest.approx(expected_probs, abs=1e-5)

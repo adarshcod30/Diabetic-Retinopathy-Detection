@@ -3,11 +3,22 @@
 Not used for local development -- `scripts/demo.py` is the local launcher,
 with a required `--checkpoint` flag pointing anywhere on disk. A Space has no
 such flag: HF Spaces runs `python app.py` with no arguments, so this file
-fetches the checkpoint from the separate model repo
+fetches the checkpoints from the separate model repo
 (huggingface.co/adarshcod30/drdetect-dr-screening -- research-use-only, see
-MODEL_CARD.md there) via `hf_hub_download` instead of bundling a 46MB weight
-file into this Space's own repo. `hf_hub_download` caches the file locally
-after the first fetch, so a Space restart does not re-download it.
+MODEL_CARD.md there) via `hf_hub_download` instead of bundling them into this
+Space's own repo. `hf_hub_download` caches each file locally after its first
+fetch, so a Space restart does not re-download them.
+
+Serves the 5-fold CNN ensemble (`ensemble_fold0.ckpt`..`ensemble_fold4.ckpt`),
+not the single `best.ckpt` this Space originally shipped -- the ensemble
+beat the single checkpoint on the DDR external test set's referable AUC
+(0.899 vs 0.891, DeLong p=0.038, see project memory from the GPU
+experimentation phase), so it is the better model to actually put in front
+of a visitor. `best.ckpt` and its ONNX export stay published as the
+documented, individually-benchmarked release artifact (MODEL_CARD.md); the
+ensemble is 5 of that same training recipe's cross-validation folds, run
+together, which is why five ~46MB files replace the one ~46MB file below
+rather than a differently-sized model.
 
 This project's model is CPU-only by design (see
 `drdetect.serve.pipeline.load_grader`'s own docstring: "a district screening
@@ -66,13 +77,15 @@ MODEL_REPO = "adarshcod30/drdetect-dr-screening"
 if __name__ == "__main__":
     from huggingface_hub import hf_hub_download
 
-    checkpoint = hf_hub_download(repo_id=MODEL_REPO, filename="best.ckpt")
+    checkpoints = [
+        hf_hub_download(repo_id=MODEL_REPO, filename=f"ensemble_fold{i}.ckpt") for i in range(5)
+    ]
 
     from drdetect.serve.demo import build_interface
 
     # regression loss, not ce: it won the locked external evaluation decisively
     # (docs/22_PHASE8_VALIDATION_RESULTS.md, referable AUC 0.924 vs 0.888, DeLong p=6.1e-10)
     demo = build_interface(
-        checkpoint, backbone="efficientnet_b0", loss_name="regression", size=512, device="cpu"
+        checkpoints, backbone="efficientnet_b0", loss_name="regression", size=512, device="cpu"
     )
     demo.launch(ssr_mode=False)

@@ -706,7 +706,7 @@ test set with significance tests — is specified in
 | **Serving** | FastAPI + the existing Phase 2 pipeline — CPU-only, no GPU assumed | **Built and tested**; `/grade` endpoint wraps `load_grader`/`run_pipeline` (`src/drdetect/serve/api.py`, `tests/integration/test_serve_api.py`) |
 | **Containerisation** | A `Dockerfile` for `linux/amd64` + `linux/arm64` was built and began an image build successfully | **Descoped by decision, not abandoned** — cut before a full build/push to keep this project's footprint on its own development machine minimal (see [`docs/03_TECH_STACK.md`](docs/03_TECH_STACK.md)'s own annotation); the FastAPI service above ships and runs directly instead |
 | **Connectivity** | Store-and-forward queue modelled explicitly in the Phase 7 simulation (1–10 Mbps rural links, per-camp outage injection) | **Modelled**, see [`docs/20_PHASE7_SIMULATION_RESULTS.md`](docs/20_PHASE7_SIMULATION_RESULTS.md) — bandwidth turned out not to be the bottleneck at 100k patients/year; grader headcount is |
-| **Public demo** | Gradio on HuggingFace Spaces, free **ZeroGPU** tier (`app.py` at this repo's root is the Spaces entry point; `scripts/demo.py` is the local equivalent) | **Live**: [huggingface.co/spaces/adarshcod30/drdetect-dr-screening](https://huggingface.co/spaces/adarshcod30/drdetect-dr-screening) — see below for what shipping it actually took |
+| **Public demo** | Gradio on HuggingFace Spaces, free **ZeroGPU** tier (`app.py` at this repo's root is the Spaces entry point; `scripts/demo.py` is the local equivalent) — serves the 5-fold CNN ensemble, not a single checkpoint (see below) | **Live**: [huggingface.co/spaces/adarshcod30/drdetect-dr-screening](https://huggingface.co/spaces/adarshcod30/drdetect-dr-screening) — see below for what shipping it actually took |
 | **Model weights** | Released alongside the code, not bundled in this repo | **Live** on [HuggingFace Hub](https://huggingface.co/adarshcod30/drdetect-dr-screening) and mirrored as a [GitHub Release](https://github.com/adarshcod30/Diabetic-Retinopathy-Detection/releases/tag/v1.0) — `best.ckpt` + a parity-verified ONNX export, research-use-only licence |
 | **CI/CD** | GitHub Actions (`.github/workflows/ci.yml`) — `ruff check`, `ruff format --check`, then `pytest` with coverage, on every push/PR | **Done** |
 | **Monitoring** | An audit log of every prediction + grader override, feeding drift review before retraining, is part of the system design (see the architecture diagram above) | **Designed, not built** — no deployed instance exists yet to log against; stated here as an honest gap, not implied as shipped |
@@ -740,13 +740,32 @@ quality-rejected-but-forced UI path:
    existed — so the UI kept showing "REJECTED" regardless. Fixed to branch on `result.grade is
    None` instead, with a new test file (`tests/unit/test_demo.py`) that had zero prior coverage.
 
+### Later upgrade: serving the 5-fold ensemble instead of one checkpoint
+
+A GPU experimentation phase (sponsored JarvisLabs credits, see project history) ran proper 5-fold
+cross-validation for the released regression-loss config for the first time and tested whether
+averaging the 5 fold checkpoints' raw outputs — the same averaging-before-decode approach this
+project's own hflip TTA already used — beat the single shipped checkpoint. Evaluated once on a
+new, never-before-touched external test set (DDR, since Messidor-2/IDRiD were already spent):
+the ensemble won on referable-DR AUC, the metric that matters most for a screening tool, **0.899
+vs. 0.891 (DeLong p=0.038)** — real and significant, even though QWK and sensitivity at a frozen
+threshold were roughly a wash.
+
+`run_pipeline` (`src/drdetect/serve/pipeline.py`) now accepts either one model or a list, and
+averages both the grade output and the Grad-CAM heatmap across every member before decoding —
+a list of one model is mathematically a no-op, so every existing single-checkpoint caller
+(`scripts/predict.py`, the FastAPI service) is unaffected. `app.py` is the only caller that
+changed: it now downloads all 5 fold checkpoints from the model repo instead of one. Each
+EfficientNet-B0 fold checkpoint is small (~46MB), so running 5 forward passes per request is
+still fast enough for the free ZeroGPU tier's CPU-only inference path.
+
 ---
 
 ## Project Structure
 
 ```
 Diabetic-Retinopathy-Detection/
-├── app.py                    # HuggingFace Spaces entry point (fetches best.ckpt from HF Hub)
+├── app.py                    # HuggingFace Spaces entry point (fetches the 5-fold ensemble from HF Hub)
 ├── MODEL_CARD.md              # Mitchell et al. 2019 structure, real Phase 8 external numbers
 ├── DATASET_CARD.md            # provenance, licensing, what may/may not be redistributed
 ├── configs/                  # Hydra YAMLs — one per experiment; this IS the ablation grid

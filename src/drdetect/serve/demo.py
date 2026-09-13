@@ -60,7 +60,7 @@ def _format_summary(result: PredictionResult) -> str:
 
 
 def build_interface(
-    checkpoint: str | Path,
+    checkpoint: str | Path | list[str | Path],
     *,
     backbone: str = "efficientnet_b0",
     loss_name: str = "ce",
@@ -72,6 +72,12 @@ def build_interface(
     on HF Spaces' free ZeroGPU tier, where `torch.cuda.is_available()`
     reports True outside an actual `@spaces.GPU` grant, so auto-detection
     would pick "cuda" and crash the moment a tensor touches it (see app.py).
+
+    `checkpoint` accepts a list to run as a cross-fold ensemble (raw outputs
+    and Grad-CAMs averaged in `run_pipeline`) instead of one model -- how the
+    live Space serves the 5-fold CNN ensemble that beat the single shipped
+    checkpoint on the DDR external test set (referable AUC 0.899 vs 0.891,
+    DeLong p=0.038).
     """
     import gradio as gr
     import torch
@@ -82,15 +88,21 @@ def build_interface(
             if torch.backends.mps.is_available()
             else ("cuda" if torch.cuda.is_available() else "cpu")
         )
-    model = load_grader(checkpoint, backbone=backbone, loss_name=loss_name, device=device)
-    temperature = load_temperature(checkpoint)
+    checkpoints = [checkpoint] if isinstance(checkpoint, str | Path) else list(checkpoint)
+    models = [
+        load_grader(c, backbone=backbone, loss_name=loss_name, device=device) for c in checkpoints
+    ]
+    # Only meaningful for a fitted sidecar next to this exact file (see
+    # load_temperature); none of the 5-fold CV checkpoints have one, and it's
+    # unused entirely for regression loss (the deployed config) either way.
+    temperature = load_temperature(checkpoints[0])
 
     def infer(image: np.ndarray, force: bool):
         if image is None:
             return None, "Upload a fundus photo to begin."
         result = run_pipeline(
             image,
-            model,
+            models,
             loss_name=loss_name,
             size=size,
             device=device,
