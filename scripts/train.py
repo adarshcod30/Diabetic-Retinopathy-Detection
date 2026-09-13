@@ -51,6 +51,23 @@ def main() -> int:
     p.add_argument("--epochs", type=int, default=40)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--weight-decay", type=float, default=1e-4)
+    p.add_argument(
+        "--layer-decay",
+        type=float,
+        default=None,
+        help="ViT layer-wise lr decay (RETFound's own recipe uses 0.65), following "
+        "BEiT/RETFound: early transformer layers get a much smaller effective lr than "
+        "late ones, instead of one flat lr for the whole backbone. Only meaningful for "
+        "a ViT backbone (patch_embed/blocks.N.*/cls_token naming) -- leave unset (the "
+        "default) for the CNN backbones, which keep the existing flat-lr optimizer.",
+    )
+    p.add_argument(
+        "--drop-path-rate",
+        type=float,
+        default=0.0,
+        help="stochastic depth, RETFound's own recipe uses 0.2. 0 (default) matches "
+        "existing behavior for every backbone that doesn't set this explicitly.",
+    )
     p.add_argument("--folds", default="0", help="comma-separated fold indices")
     p.add_argument("--n-splits", type=int, default=5)
     p.add_argument("--workers", type=int, default=2)
@@ -166,7 +183,7 @@ def main() -> int:
 
     from drdetect.data.dataset import FundusDataset, build_transforms, load_split
     from drdetect.grading.losses import corn_task_pos_weights, outputs_for_loss
-    from drdetect.grading.model import build_model, count_parameters
+    from drdetect.grading.model import backbone_norm_stats, build_model, count_parameters
     from drdetect.grading.module import GradingModule
     from drdetect.utils.seed import seed_everything, worker_init_fn
 
@@ -199,6 +216,10 @@ def main() -> int:
         _default_name += "_" + args.monitor.split("/")[-1]
     if args.spec_floor != 0.85:
         _default_name += f"_specfloor{args.spec_floor:g}"
+    if args.layer_decay is not None:
+        _default_name += f"_layerdecay{args.layer_decay:g}"
+    if args.drop_path_rate:
+        _default_name += f"_droppath{args.drop_path_rate:g}"
     run_name = args.run_name or _default_name
     n_outputs = outputs_for_loss(args.loss)
 
@@ -246,8 +267,13 @@ def main() -> int:
             class_weights = (inv / inv.mean()).tolist()
             print("  class weights    :", [round(w, 2) for w in class_weights])
 
-        train_ds = FundusDataset(train_recs, args.data_root, build_transforms(args.size, True))
-        val_ds = FundusDataset(val_recs, args.data_root, build_transforms(args.size, False))
+        norm_mean, norm_std = backbone_norm_stats(args.backbone)
+        train_ds = FundusDataset(
+            train_recs, args.data_root, build_transforms(args.size, True, norm_mean, norm_std)
+        )
+        val_ds = FundusDataset(
+            val_recs, args.data_root, build_transforms(args.size, False, norm_mean, norm_std)
+        )
 
         common = {
             "batch_size": args.batch_size,
@@ -274,6 +300,7 @@ def main() -> int:
                 num_outputs=n_outputs,
                 pretrained=False,
                 freeze_bn=not args.no_freeze_bn,
+                drop_path_rate=args.drop_path_rate,
             )
             ckpt = torch.load(args.init_checkpoint, map_location="cpu", weights_only=False)
             state = ckpt.get("state_dict", ckpt)
@@ -290,11 +317,16 @@ def main() -> int:
                 num_outputs=n_outputs,
                 pretrained=True,
                 freeze_bn=not args.no_freeze_bn,
+                drop_path_rate=args.drop_path_rate,
             )
         total, trainable = count_parameters(model)
         print(f"  params: {total:,} total, {trainable:,} trainable")
         if not args.no_freeze_bn:
             print(f"  frozen BatchNorm layers: {model.n_frozen_bn}")
+        if args.layer_decay is not None:
+            print(f"  layer-wise lr decay: {args.layer_decay:g} (ViT depth-wise param groups)")
+        if args.drop_path_rate:
+            print(f"  drop-path rate: {args.drop_path_rate:g}")
 
         steps_per_epoch = len(train_dl) // args.accum
         print(
@@ -315,6 +347,7 @@ def main() -> int:
             warmup_epochs=args.warmup_epochs,
             max_epochs=epochs,
             spec_floor=args.spec_floor,
+            layer_decay=args.layer_decay,
         )
 
         out_dir = Path(args.out_dir) / f"{run_name}_fold{fold}"

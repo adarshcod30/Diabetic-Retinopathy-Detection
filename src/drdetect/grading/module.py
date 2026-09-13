@@ -44,6 +44,7 @@ class GradingModule(L.LightningModule):
         warmup_epochs: int = 3,
         max_epochs: int = 40,
         spec_floor: float = 0.85,
+        layer_decay: float | None = None,
     ):
         super().__init__()
         # `model` is a live module; saving it into the checkpoint hyperparameters
@@ -232,13 +233,28 @@ class GradingModule(L.LightningModule):
         self._val_targets.clear()
 
     def configure_optimizers(self):
-        # Only parameters that actually require grad -- frozen BN affine weights
-        # must not be handed to the optimiser, or AdamW allocates moment buffers
-        # for tensors it will never update.
-        params = [p for p in self.model.parameters() if p.requires_grad]
-        optimiser = torch.optim.AdamW(
-            params, lr=self.hparams.lr, weight_decay=self.hparams.weight_decay
-        )
+        if self.hparams.layer_decay is not None:
+            # ViT fine-tuning (RETFound's own recipe): per-depth param groups,
+            # each with its own base lr already baked in via lr_scale.
+            from drdetect.grading.model import layer_wise_param_groups
+
+            params = layer_wise_param_groups(
+                self.model.backbone,
+                lr=self.hparams.lr,
+                weight_decay=self.hparams.weight_decay,
+                layer_decay=self.hparams.layer_decay,
+            )
+            # lr= here is a required fallback default only -- every group above
+            # already sets its own lr, so this value is never actually used.
+            optimiser = torch.optim.AdamW(params, lr=self.hparams.lr)
+        else:
+            # Only parameters that actually require grad -- frozen BN affine
+            # weights must not be handed to the optimiser, or AdamW allocates
+            # moment buffers for tensors it will never update.
+            params = [p for p in self.model.parameters() if p.requires_grad]
+            optimiser = torch.optim.AdamW(
+                params, lr=self.hparams.lr, weight_decay=self.hparams.weight_decay
+            )
 
         warmup = max(self.hparams.warmup_epochs, 0)
         total = max(self.hparams.max_epochs, warmup + 1)

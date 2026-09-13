@@ -61,7 +61,12 @@ class FundusDataset(Dataset):
         return [r.group_id for r in self.records]
 
 
-def build_transforms(size: int, train: bool):
+def build_transforms(
+    size: int,
+    train: bool,
+    mean: tuple[float, float, float] = (0.485, 0.456, 0.406),
+    std: tuple[float, float, float] = (0.229, 0.224, 0.225),
+):
     """Augmentations.
 
     Train-time choices and why:
@@ -72,12 +77,15 @@ def build_transforms(size: int, train: bool):
       * NO heavy blur or noise -- a microaneurysm is 1-3 px at this resolution,
         and those augmentations would erase the very feature that defines
         grade 1.
+
+    mean/std default to ImageNet statistics, because the default backbone is
+    ImageNet-pretrained -- pass a backbone's own pretrained_cfg stats instead
+    when it was trained on a different normalisation (e.g. RETFound's 0.5/0.5/0.5).
     """
     import albumentations as A
     from albumentations.pytorch import ToTensorV2
 
-    # ImageNet statistics, because the backbone is ImageNet-pretrained.
-    normalise = A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+    normalise = A.Normalize(mean=mean, std=std)
 
     if not train:
         return A.Compose([A.Resize(size, size), normalise, ToTensorV2()])

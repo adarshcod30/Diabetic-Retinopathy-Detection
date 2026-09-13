@@ -82,7 +82,7 @@ def main() -> int:
         referable_labels,
     )
     from drdetect.grading.losses import decode_output, naive_referable_cut, outputs_for_loss
-    from drdetect.grading.model import build_model
+    from drdetect.grading.model import backbone_norm_stats, build_model
     from drdetect.utils.seed import seed_everything
 
     seed_everything(args.seed)
@@ -91,7 +91,12 @@ def main() -> int:
     _, val_recs, strategy = load_split(
         manifest, fold=args.fold, n_splits=args.n_splits, seed=args.seed
     )
-    ds = FundusDataset(val_recs, args.data_root, build_transforms(args.size, train=False))
+    norm_mean, norm_std = backbone_norm_stats(args.backbone)
+    ds = FundusDataset(
+        val_recs,
+        args.data_root,
+        build_transforms(args.size, train=False, mean=norm_mean, std=norm_std),
+    )
     dl = DataLoader(ds, batch_size=args.batch_size, num_workers=args.workers, shuffle=False)
 
     device = (
