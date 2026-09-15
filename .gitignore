@@ -66,3 +66,9 @@ slprj/
 *.slxc
 *.asv
 *.autosave
+
+# local agent and editor files, never committed
+.claude.json
+CLAUDE.local.md
+CLAUDE.md
+AGENTS.md
