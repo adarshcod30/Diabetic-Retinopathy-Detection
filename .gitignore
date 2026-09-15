@@ -69,3 +69,6 @@ slprj/
 # secrets, build output and local noise
 .env.local
 *.log
+
+# test and type-checker artefacts
+coverage.xml
